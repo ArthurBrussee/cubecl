@@ -335,111 +335,133 @@ impl ComputeServer for WgpuSpirvServer {
         bindings: Vec<server::Binding>,
         mode: ExecutionMode,
     ) {
-        let profile_level = self.logger.profile_level();
-        let profile_info = if profile_level.is_some() {
-            Some((kernel.name(), kernel.id()))
-        } else {
-            None
-        };
-
-        let pipeline = self.pipeline(kernel, mode);
-        let group_layout = pipeline.get_bind_group_layout(0);
-
-        // Store all the resources we'll be using. This could be eliminated if
-        // there was a way to tie the lifetime of the resource to the memory handle.
-        let resources: Vec<_> = bindings
-            .iter()
-            .map(|binding| self.get_resource(binding.clone()))
-            .collect();
-
-        let entries = &resources
-            .iter()
-            .enumerate()
-            .map(|(i, r)| wgpu::BindGroupEntry {
-                binding: i as u32,
-                resource: r.resource().as_wgpu_bind_resource(),
-            })
-            .collect::<Vec<_>>();
-
-        if profile_level.is_some() {
-            let fut = self.sync_queue();
-            self.duration_profiled += future::block_on(fut);
-        }
-
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &group_layout,
-            entries,
-        });
-
-        // First resolve the dispatch buffer if needed. The weird ordering is because the lifetime of this
-        // needs to be longer than the compute pass, so we can't do this just before dispatching.
-        let dispatch_br = match count.clone() {
-            CubeCount::Dynamic(binding) => Some(self.get_resource(binding)),
-            _ => None,
-        };
-
-        self.tasks_count += 1;
-        self.query_started = true;
-
-        // Start a new compute pass if needed. The forget_lifetime allows
-        // to store this with a 'static lifetime, but the compute pass must
-        // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
-        let pass = self.current_pass.get_or_insert_with(|| {
-            self.encoder
-                .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: None,
-                    timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
-                        query_set: &self.query_set,
-                        beginning_of_pass_write_index: if !self.query_started {
-                            Some(0)
-                        } else {
-                            None
-                        },
-                        end_of_pass_write_index: Some(1),
-                    }),
-                })
-                .forget_lifetime()
-        });
-
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-
-        match count {
-            CubeCount::Static(x, y, z) => {
-                pass.dispatch_workgroups(x, y, z);
-            }
-            CubeCount::Dynamic(_) => {
-                let binding_resource = dispatch_br.as_ref().unwrap();
-                pass.dispatch_workgroups_indirect(
-                    &binding_resource.resource().buffer,
-                    binding_resource.resource().offset(),
-                );
-            }
-        }
-
-        if let Some(level) = profile_level {
-            let (name, kernel_id) = profile_info.unwrap();
-
-            // Execute the task.
-            let duration = future::block_on(self.sync_queue());
-            self.duration_profiled += duration;
-
-            let info = match level {
-                ProfileLevel::Basic | ProfileLevel::Medium => {
-                    if let Some(val) = name.split("<").next() {
-                        val.split("::").last().unwrap_or(name).to_string()
-                    } else {
-                        name.to_string()
-                    }
-                }
-                ProfileLevel::Full => {
-                    format!("{name}: {kernel_id} CubeCount {count:?}")
-                }
+        unsafe fn execute(
+            &mut self,
+            kernel: Self::Kernel,
+            count: CubeCount,
+            bindings: Vec<server::Binding>,
+            mode: ExecutionMode,
+        ) {
+            // Check for any profiling work to be done before execution.
+            let profile_level = self.logger.profile_level();
+            let profile_info = if profile_level.is_some() {
+                Some((kernel.name(), kernel.id()))
+            } else {
+                None
             };
-            self.logger.register_profiled(info, duration);
-        } else if self.tasks_count >= self.tasks_max {
-            self.flush();
+
+            if profile_level.is_some() {
+                let fut = self.sync_queue();
+                self.duration_profiled += future::block_on(fut);
+            }
+
+            // Start execution.
+            let pipeline = self.pipeline(kernel, mode);
+            let group_layout = pipeline.get_bind_group_layout(0);
+
+            // Store all the resources we'll be using. This could be eliminated if
+            // there was a way to tie the lifetime of the resource to the memory handle.
+            let resources: Vec<_> = bindings
+                .iter()
+                .map(|binding| self.get_resource(binding.clone()))
+                .collect();
+            let entries = &resources
+                .iter()
+                .enumerate()
+                .map(|(i, r)| wgpu::BindGroupEntry {
+                    binding: i as u32,
+                    resource: r.resource().as_wgpu_bind_resource(),
+                })
+                .collect::<Vec<_>>();
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &group_layout,
+                entries,
+            });
+
+            // First resolve the dispatch buffer if needed. The weird ordering is because the lifetime of this
+            // needs to be longer than the compute pass, so we can't do this just before dispatching.
+            let dispatch_br = match count.clone() {
+                CubeCount::Dynamic(binding) => Some(self.get_resource(binding)),
+                _ => None,
+            };
+
+            // Start a new compute pass if needed. The forget_lifetime allows
+            // to store this with a 'static lifetime, but the compute pass must
+            // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
+            let pass = self.current_pass.get_or_insert_with(|| {
+                // Write out timestamps. The first compute pass writes both a start and end timestamp.
+                // the second timestamp writes out only an end stamp.
+                let timestamps =
+                    self.query_set
+                        .as_ref()
+                        .map(|query_set| wgpu::ComputePassTimestampWrites {
+                            query_set,
+                            beginning_of_pass_write_index: if self.command_start_time.is_none() {
+                                Some(0)
+                            } else {
+                                None
+                            },
+                            end_of_pass_write_index: Some(1),
+                        });
+
+                self.encoder
+                    .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                        label: None,
+                        timestamp_writes: timestamps,
+                    })
+                    .forget_lifetime()
+            });
+
+            self.tasks_count += 1;
+
+            // Record the start time of the first compute pass.
+            if self.command_start_time.is_none() {
+                self.command_start_time = Some(Instant::now());
+            }
+
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+
+            match count {
+                CubeCount::Static(x, y, z) => {
+                    pass.dispatch_workgroups(x, y, z);
+                }
+                CubeCount::Dynamic(_) => {
+                    let binding_resource = dispatch_br.as_ref().unwrap();
+                    pass.dispatch_workgroups_indirect(
+                        &binding_resource.resource().buffer,
+                        binding_resource.resource().offset(),
+                    );
+                }
+            }
+
+            if self.tasks_count >= self.tasks_max {
+                self.flush();
+            }
+
+            // If profiling, write out results.
+            if let Some(level) = profile_level {
+                let (name, kernel_id) = profile_info.unwrap();
+
+                // Execute the task.
+                let duration = future::block_on(self.sync_queue());
+                self.duration_profiled += duration;
+
+                let info = match level {
+                    ProfileLevel::Basic | ProfileLevel::Medium => {
+                        if let Some(val) = name.split("<").next() {
+                            val.split("::").last().unwrap_or(name).to_string()
+                        } else {
+                            name.to_string()
+                        }
+                    }
+                    ProfileLevel::Full => {
+                        format!("{name}: {kernel_id} CubeCount {count:?}")
+                    }
+                };
+                self.logger.register_profiled(info, duration);
+            }
         }
     }
 

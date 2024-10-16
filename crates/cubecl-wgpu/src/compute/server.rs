@@ -389,6 +389,7 @@ impl ComputeServer for WgpuServer {
         bindings: Vec<server::Binding>,
         mode: ExecutionMode,
     ) {
+        // Check for any profiling work to be done before execution.
         let profile_level = self.logger.profile_level();
         let profile_info = if profile_level.is_some() {
             Some((kernel.name(), kernel.id()))
@@ -396,6 +397,12 @@ impl ComputeServer for WgpuServer {
             None
         };
 
+        if profile_level.is_some() {
+            let fut = self.sync_queue();
+            self.duration_profiled += future::block_on(fut);
+        }
+
+        // Start execution.
         let pipeline = self.pipeline(kernel, mode);
         let group_layout = pipeline.get_bind_group_layout(0);
 
@@ -405,7 +412,6 @@ impl ComputeServer for WgpuServer {
             .iter()
             .map(|binding| self.get_resource(binding.clone()))
             .collect();
-
         let entries = &resources
             .iter()
             .enumerate()
@@ -414,12 +420,6 @@ impl ComputeServer for WgpuServer {
                 resource: r.resource().as_wgpu_bind_resource(),
             })
             .collect::<Vec<_>>();
-
-        if profile_level.is_some() {
-            let fut = self.sync_queue();
-            self.duration_profiled += future::block_on(fut);
-        }
-
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &group_layout,
@@ -433,15 +433,12 @@ impl ComputeServer for WgpuServer {
             _ => None,
         };
 
-        self.tasks_count += 1;
-        if self.command_start_time.is_none() {
-            self.command_start_time = Some(Instant::now());
-        }
-
         // Start a new compute pass if needed. The forget_lifetime allows
         // to store this with a 'static lifetime, but the compute pass must
         // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
         let pass = self.current_pass.get_or_insert_with(|| {
+            // Write out timestamps. The first compute pass writes both a start and end timestamp.
+            // the second timestamp writes out only an end stamp.
             let timestamps =
                 self.query_set
                     .as_ref()
@@ -463,6 +460,13 @@ impl ComputeServer for WgpuServer {
                 .forget_lifetime()
         });
 
+        self.tasks_count += 1;
+
+        // Record the start time of the first compute pass.
+        if self.command_start_time.is_none() {
+            self.command_start_time = Some(Instant::now());
+        }
+
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
 
@@ -479,6 +483,11 @@ impl ComputeServer for WgpuServer {
             }
         }
 
+        if self.tasks_count >= self.tasks_max {
+            self.flush();
+        }
+
+        // If profiling, write out results.
         if let Some(level) = profile_level {
             let (name, kernel_id) = profile_info.unwrap();
 
@@ -499,8 +508,6 @@ impl ComputeServer for WgpuServer {
                 }
             };
             self.logger.register_profiled(info, duration);
-        } else if self.tasks_count >= self.tasks_max {
-            self.flush();
         }
     }
 
