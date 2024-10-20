@@ -334,10 +334,13 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             let resource = self.memory_management.storage().get(&resource_handle);
 
             // Write to the staging buffer. Next queue submission this will copy the data to the GPU.
-            self.queue
+            let mut write_buffer = self
+                .queue
                 .write_buffer_with(&resource.buffer, resource.offset(), len)
-                .expect("Failed to write to staging buffer.")
-                .copy_from_slice(data);
+                .expect("Failed to write to staging buffer.");
+
+            // Write all data up to data length.
+            write_buffer[0..data.len()].copy_from_slice(data);
         }
 
         Handle::new(memory, None, None)
