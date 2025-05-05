@@ -237,6 +237,13 @@ impl Elem {
     pub fn is_atomic(&self) -> bool {
         matches!(self, Self::AtomicI32 | Self::AtomicU32 | Self::AtomicF32)
     }
+
+    pub fn is_integral(&self) -> bool {
+        matches!(
+            self,
+            Self::I32 | Self::I64 | Self::AtomicI32 | Self::U32 | Self::U64 | Self::AtomicU32
+        )
+    }
 }
 
 impl Display for Elem {

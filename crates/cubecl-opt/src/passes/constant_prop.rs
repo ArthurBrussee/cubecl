@@ -212,6 +212,26 @@ macro_rules! const_eval_int {
 }
 
 macro_rules! const_eval_float {
+    ($lhs:expr, $rhs:expr; $fn_f:path, $fn_i:path) => {{
+        use ConstantScalarValue::*;
+
+        let lhs = $lhs.as_const();
+        let rhs = $rhs.as_const();
+        if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
+            let rhs = rhs.cast_to(lhs.elem());
+            Some(match (lhs, rhs) {
+                (Float(lhs, kind), Float(rhs, _)) => {
+                    ConstantScalarValue::Float($fn_f(lhs, rhs), kind)
+                }
+                (Float(lhs, kind), Int(rhs, _)) => {
+                    ConstantScalarValue::Float($fn_i(lhs, rhs as i32), kind)
+                }
+                _ => unreachable!(),
+            })
+        } else {
+            None
+        }
+    }};
     ($lhs:expr, $rhs:expr; $fn:path) => {{
         use ConstantScalarValue::*;
 
@@ -295,7 +315,9 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Sub(op) => const_eval!(-op.lhs, op.rhs),
         Arithmetic::Mul(op) => const_eval!(*op.lhs, op.rhs),
         Arithmetic::Div(op) => const_eval!(/ op.lhs, op.rhs),
-        Arithmetic::Powf(op) => const_eval_float!(op.lhs, op.rhs; num::Float::powf),
+        Arithmetic::Powf(op) => {
+            const_eval_float!(op.lhs, op.rhs; num::Float::powf, num::Float::powi)
+        }
         Arithmetic::Modulo(op) => const_eval!(% op.lhs, op.rhs),
         Arithmetic::Remainder(op) => const_eval!(% op.lhs, op.rhs),
         Arithmetic::MulHi(op) => {

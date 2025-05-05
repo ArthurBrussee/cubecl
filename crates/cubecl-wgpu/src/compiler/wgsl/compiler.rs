@@ -699,7 +699,7 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
-            cube::Arithmetic::Powf(op) => instructions.push(wgsl::Instruction::Powf {
+            cube::Arithmetic::Powf(op) => instructions.push(wgsl::Instruction::Pow {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
@@ -1079,7 +1079,7 @@ fn register_extensions(instructions: &[wgsl::Instruction]) -> Vec<wgsl::Extensio
     // Since not all instructions are native to WGSL, we need to add the custom ones.
     for instruction in instructions {
         match instruction {
-            wgsl::Instruction::Powf { lhs: _, rhs, out } => {
+            wgsl::Instruction::Pow { lhs: _, rhs, out } => {
                 register_extension(wgsl::Extension::PowfPrimitive(out.item()));
 
                 if rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1 {

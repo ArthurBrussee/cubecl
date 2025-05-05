@@ -121,7 +121,7 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
-    Powf {
+    Pow {
         lhs: Variable,
         rhs: Variable,
         out: Variable,
@@ -550,12 +550,32 @@ impl Display for Instruction {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = clamp({input}, {min}, {max});")
             }
-            Instruction::Powf { lhs, rhs, out } => {
-                if rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1 {
-                    let out = out.fmt_left();
+            Instruction::Pow { lhs, rhs, out } => {
+                let out = out.fmt_left();
+
+                let is_scalar_pow =
+                    rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1;
+
+                if let Variable::ConstantScalar(val, _) = rhs {
+                    if rhs.elem().is_integral() && is_scalar_pow {
+                        let val = val.as_i64();
+
+                        match val {
+                            -2 => writeln!(f, "{out} = 1.0 / ({lhs} * {lhs});"),
+                            -1 => writeln!(f, "{out} = 1.0 / {lhs};"),
+                            0 => writeln!(f, "{out} = 1.0;"),
+                            1 => writeln!(f, "{out} = {lhs};"),
+                            2 => writeln!(f, "{out} = {lhs} * {lhs};"),
+                            _ => writeln!(f, "{out} = powf_scalar({lhs}, {rhs});"),
+                        }
+                    } else if is_scalar_pow {
+                        writeln!(f, "{out} = powf_scalar({lhs}, {rhs});")
+                    } else {
+                        writeln!(f, "{out} = powf({lhs}, {rhs});")
+                    }
+                } else if is_scalar_pow {
                     writeln!(f, "{out} = powf_scalar({lhs}, {rhs});")
                 } else {
-                    let out = out.fmt_left();
                     writeln!(f, "{out} = powf({lhs}, {rhs});")
                 }
             }

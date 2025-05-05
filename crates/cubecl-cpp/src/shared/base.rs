@@ -857,7 +857,7 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(instruction)
             }
             gpu::Arithmetic::Powf(op) => {
-                instructions.push(Instruction::Powf(self.compile_binary(op, out)))
+                instructions.push(Instruction::Pow(self.compile_binary(op, out)))
             }
             gpu::Arithmetic::Sqrt(op) => {
                 instructions.push(Instruction::Sqrt(self.compile_unary(op, out)))
