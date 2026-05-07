@@ -120,6 +120,7 @@ impl Metadata {
         let mut i = 0;
         #[allow(clippy::explicit_counter_loop)]
         for j in start_axis..tile.len() {
+            assert!(self.shape[j].is_multiple_of(tile[i] as usize), "self.shape[{j}] must be divisible by tile[{i}]");
             let dim = self.shape[j] / tile[i] as usize;
             new_metadata.push(dim, 0);
             i += 1;
