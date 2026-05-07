@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
-use crate::{MetadataError, shape::Shape, strides::Strides};
+use crate::{
+    MetadataError, shape::Shape, strides::Strides, striding::row_major_contiguous_strides,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Metadata {
@@ -132,6 +134,7 @@ impl Metadata {
             let dim = self.shape[i];
             new_metadata.push(dim, 0);
         }
+        new_metadata.strides = row_major_contiguous_strides(&new_metadata.shape);
 
         new_metadata
     }
