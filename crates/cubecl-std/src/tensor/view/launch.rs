@@ -329,7 +329,11 @@ mod layout {
             value: L::RuntimeArg<R>,
         ) -> Self {
             Self {
-                meta: Metadata { shape, strides, tiler: None },
+                meta: Metadata {
+                    shape,
+                    strides,
+                    tiler: None,
+                },
                 ty,
                 value,
             }

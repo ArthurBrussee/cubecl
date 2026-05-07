@@ -27,7 +27,11 @@ impl Metadata {
             "Rank of shape and strides must be the same"
         );
 
-        Self { shape, strides, tiler: None }
+        Self {
+            shape,
+            strides,
+            tiler: None,
+        }
     }
 
     pub fn shape(&self) -> &Shape {
@@ -101,5 +105,34 @@ impl Metadata {
     pub fn push(&mut self, shape: usize, stride: usize) {
         self.shape.push(shape);
         self.strides.push(stride);
+    }
+
+    pub fn to_tiled(&self, start_axis: u8, tile: &[usize]) -> Self {
+        let start_axis = start_axis as usize;
+        let mut new_metadata = Metadata::new(Shape::new([]), Strides::new(&[]));
+        for i in 0..start_axis {
+            let dim = self.shape[i];
+            new_metadata.push(dim, 0);
+        }
+
+        let mut i = 0;
+        #[allow(clippy::explicit_counter_loop)]
+        for j in start_axis..tile.len() {
+            let dim = self.shape[j] / tile[i];
+            new_metadata.push(dim, 0);
+            i += 1;
+        }
+        i = 0;
+        for _ in start_axis + tile.len()..start_axis + 2 * tile.len() {
+            let dim = tile[i];
+            new_metadata.push(dim, 0);
+            i += 1;
+        }
+        for i in start_axis + tile.len()..self.shape.len() {
+            let dim = self.shape[i];
+            new_metadata.push(dim, 0);
+        }
+
+        new_metadata
     }
 }
