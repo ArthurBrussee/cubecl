@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 
 use crate::{MetadataError, shape::Shape, strides::Strides};
 
@@ -6,6 +7,14 @@ use crate::{MetadataError, shape::Shape, strides::Strides};
 pub struct Metadata {
     pub shape: Shape,
     pub strides: Strides,
+    pub tiler: Option<Tiler>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Tiler {
+    start_axis: u8, // 0..256, représente un entier < rank
+    tile_size: SmallVec<[u16; 3]>, // 0..65k
+                    // 16 * 3 + 8 = 56 + Option: ~8 -> 64 bits
 }
 
 impl Metadata {
@@ -18,7 +27,7 @@ impl Metadata {
             "Rank of shape and strides must be the same"
         );
 
-        Self { shape, strides }
+        Self { shape, strides, tiler: None }
     }
 
     pub fn shape(&self) -> &Shape {
