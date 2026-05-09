@@ -426,6 +426,21 @@ impl<D: Dialect> CppCompiler<D> {
                     instructions.push(Instruction::ProxyAsyncToSharedFence)
                 }
             },
+            gpu::Operation::WorkgroupUniformLoad(input) => {
+                // Workgroup uniformity is implicit on CUDA/HIP/Metal; a barrier
+                // followed by a (possibly atomic) load is sufficient.
+                let is_atomic = input.ty.is_atomic();
+                instructions.push(Instruction::SyncThreads);
+                let load = UnaryInstruction {
+                    input: self.compile_variable(input),
+                    out: self.compile_variable(out.unwrap()),
+                };
+                if is_atomic {
+                    instructions.push(Instruction::AtomicLoad(load));
+                } else {
+                    instructions.push(Instruction::Load(load));
+                }
+            }
             gpu::Operation::Plane(op) => {
                 self.flags.indexes.plane_dim_checked = true;
                 let out = self.compile_variable(out.unwrap());

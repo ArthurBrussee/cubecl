@@ -173,6 +173,65 @@ fn len_static<T: CubePrimitive>(shared: &NativeExpand<SharedMemory<T>>) -> Nativ
 }
 
 impl<T: CubePrimitive> List<T> for SharedMemory<T> {}
+
+/// Module that contains the implementation details of the workgroup-uniform
+/// load primitive.
+mod indexation {
+    use cubecl_ir::{Operation, Variable, VariableKind};
+
+    use crate::frontend::index_expand;
+    use crate::ir::Instruction;
+
+    use super::*;
+
+    /// Build a reference (`&list[i]`) into the shared memory, mirroring the
+    /// normalization done by the regular indexing path.
+    fn index_reference(scope: &Scope, list: Variable, i: NativeExpand<usize>) -> Variable {
+        let index: Variable = i.into();
+        let index = match index.kind {
+            VariableKind::Constant(value) => {
+                Variable::constant(value, usize::__expand_as_type(scope))
+            }
+            _ => index,
+        };
+        index_expand(scope, list, index, None, false)
+    }
+
+    #[cube]
+    impl<T: CubePrimitive> SharedMemory<T> {
+        /// Load element `i` and treat the result as workgroup-uniform.
+        ///
+        /// Mirrors WGSL's `workgroupUniformLoad`. Non-WebGPU backends lower
+        /// this to a `sync_cube` followed by a regular (or atomic) load —
+        /// uniformity is implicit there.
+        ///
+        /// The result is `<T as CubePrimitive>::Scalar`:
+        ///
+        /// - plain scalar `T` (e.g. `f32`) → `T` itself;
+        /// - `Atomic<E>` → the underlying numeric `E` (WGSL's atomic
+        ///   overload, spec §16.3), so an atomic handle can never leak out.
+        ///
+        /// Note: for a *vectorized* element type (`Vector<S, N>`) this
+        /// returns the lane scalar `S`, **not** `Vector<S, N>` — the
+        /// vectorization is dropped. If you need the full vector, read +
+        /// `sync_cube` manually. This is a deliberate trade-off to keep a
+        /// single sound signature (see PR #1327 discussion); the common
+        /// scalar and atomic cases are exact.
+        #[allow(unused_variables)]
+        pub fn workgroup_uniform_load(&self, i: usize) -> <T as CubePrimitive>::Scalar {
+            intrinsic!(|scope| {
+                let reference = index_reference(scope, self.expand, i);
+                let out = scope.create_local(<T as CubePrimitive>::Scalar::__expand_as_type(scope));
+                scope.register(Instruction::new(
+                    Operation::WorkgroupUniformLoad(reference),
+                    out,
+                ));
+                out.into()
+            })
+        }
+    }
+}
+
 impl<T: CubePrimitive> ListExpand<T> for NativeExpand<SharedMemory<T>> {
     fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
         Self::__expand_len_method(self, scope)

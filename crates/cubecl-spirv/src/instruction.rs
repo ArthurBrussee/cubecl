@@ -45,6 +45,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operation::Metadata(meta) => self.compile_meta(meta, inst.out, uniform),
             Operation::Plane(plane) => self.compile_plane(plane, inst.out, uniform),
             Operation::Synchronization(sync) => self.compile_sync(sync),
+            Operation::WorkgroupUniformLoad(op) => {
+                // SPIR-V has no uniform-load builtin; the uniformity contract
+                // is implicit, so a barrier plus a (possibly atomic) load
+                // through the reference is sufficient.
+                self.compile_sync(core::Synchronization::SyncCube);
+                if op.ty.is_atomic() {
+                    self.compile_atomic(core::AtomicOp::Load(op), inst.out, inst.modes);
+                } else {
+                    self.compile_memory(core::Memory::Load(op), inst.out);
+                }
+            }
             Operation::CoopMma(cmma) => self.compile_cmma(cmma, inst.out),
             Operation::TensorIndexing(tensor) => self.compile_tensor_indexing(tensor, inst.out),
             Operation::NonSemantic(debug) => self.compile_debug(debug),
