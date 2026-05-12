@@ -1,6 +1,7 @@
 use crate::{
     compiler::mlir_engine::MlirEngine,
     compute::{
+        notification::Notification,
         runner::KernelRunner,
         schedule::{BindingsResource, ScheduleTask},
     },
@@ -22,7 +23,7 @@ pub struct CpuExecutionQueue {
 
 enum QueueItem {
     Task(ScheduleTask),
-    Flush(std::sync::mpsc::SyncSender<()>),
+    Flush(Notification),
 }
 
 impl CpuExecutionQueue {
@@ -33,9 +34,11 @@ impl CpuExecutionQueue {
 
     /// Flushes the queue, making sure all enqueued tasks before this point are executed.
     pub fn flush(&self) {
-        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        self.sender.send(QueueItem::Flush(sender)).unwrap();
-        receiver.recv().unwrap()
+        let notification = Notification::new();
+        self.sender
+            .send(QueueItem::Flush(notification.clone()))
+            .unwrap();
+        notification.wait();
     }
 
     /// Resolves the global execution queue instance.
@@ -55,7 +58,9 @@ impl CpuExecutionQueue {
                 match receiver.recv() {
                     Ok(item) => match item {
                         QueueItem::Task(task) => server.execute_task(task),
-                        QueueItem::Flush(sender) => sender.send(()).unwrap(),
+                        QueueItem::Flush(notification) => {
+                            notification.send();
+                        }
                     },
                     Err(err) => panic!("{err:?}"),
                 }
