@@ -301,7 +301,22 @@ pub fn test_to_tiled_should_return_physical_layout() {
         tiled_metadata, expected_metadata,
         "expected metadata should be equal to tiled_metadata"
     );
-    //panic!("metadata {:?}", tiled_metadata);
+}
+
+pub fn test_roundtrip_tiled() {
+    let shape = Shape::new([5, 10, 22, 12, 7]);
+
+    let strides = row_major_contiguous_strides(shape.clone());
+    let metadata = Metadata::new(shape.clone(), strides);
+
+    let tile_size = [2, 2, 4];
+    let tiled_metadata = metadata.to_tiled(1, &tile_size);
+
+    let semantic_shape = tiled_metadata.semantic_shape();
+    assert_eq!(
+        shape, semantic_shape,
+        "semantic_shape should be equal to shape"
+    );
 }
 
 #[allow(missing_docs)]
@@ -400,6 +415,11 @@ macro_rules! testgen_metadata {
             #[$crate::runtime_tests::test_log::test]
             fn test_to_tiled_layout() {
                 cubecl_core::runtime_tests::metadata::test_to_tiled_should_return_physical_layout();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_to_tiled_roundtrip() {
+                cubecl_core::runtime_tests::metadata::test_roundtrip_tiled();
             }
         }
     };

@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
@@ -5,14 +6,14 @@ use crate::{
     MetadataError, shape::Shape, strides::Strides, striding::row_major_contiguous_strides,
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 pub struct Metadata {
     pub shape: Shape,
     pub strides: Strides,
     pub tiler: Option<Tiler>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 pub struct Tiler {
     pub start_axis: u8,
     pub tile_size: SmallVec<[u16; 3]>,
@@ -144,5 +145,33 @@ impl Metadata {
         });
 
         new_metadata
+    }
+
+    pub fn semantic_shape(&self) -> Shape {
+        let tiler = self
+            .tiler
+            .as_ref()
+            .expect("Metadata must be tiled to reconstruct semantic shape");
+
+        let start = tiler.start_axis as usize;
+        let num_tiles = tiler.tile_size.len();
+
+        let mut semantic_dims = Vec::with_capacity(self.rank() - num_tiles);
+
+        for i in 0..start {
+            semantic_dims.push(self.shape[i]);
+        }
+
+        for i in 0..num_tiles {
+            let grid_size = self.shape[start + i];
+            let tile_size = self.shape[start + num_tiles + i];
+            semantic_dims.push(grid_size * tile_size);
+        }
+
+        for i in (start + 2 * num_tiles)..self.rank() {
+            semantic_dims.push(self.shape[i]);
+        }
+
+        Shape::from_iter(semantic_dims.iter())
     }
 }
