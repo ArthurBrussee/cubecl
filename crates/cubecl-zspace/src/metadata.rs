@@ -118,10 +118,16 @@ impl Metadata {
     /// `[Pre-axes, Grid-axes, Tile-axes, Post-axes]`
     ///
     /// # Example
-    /// ```
-    /// // Logical shape [4, 4], tile [2, 2]
-    /// // Physical shape becomes [2, 2, 2, 2]
+    /// ```rust
+    /// use cubecl_zspace::metadata::Metadata;
+    ///
+    /// let shape = [4, 4];
+    /// let strides = [4, 1];
+    /// let metadata = Metadata::new(shape, strides);
+    ///
     /// let tiled = metadata.to_tiled(0, &[2, 2]);
+    ///
+    /// assert_eq!(tiled.semantic_shape().as_slice(), &[4, 4]);
     /// ```
     pub fn to_tiled(&self, start_axis: u8, tile: &[u16]) -> Self {
         let start_axis = start_axis as usize;
@@ -167,10 +173,18 @@ impl Metadata {
     /// back into their original dimensions: $[D/T, T] \rightarrow [D]$.
     ///
     /// # Example
-    /// ```
-    /// // Physical shape [2, 2, 2, 2] with 2x2 tiles
-    /// // Semantic shape returns [4, 4]
+    /// ```rust
+    /// use cubecl_zspace::metadata::Metadata;
+    ///
+    /// let shape = [8, 8];
+    /// let strides = [8, 1];
+    /// let metadata = Metadata::new(shape, strides);
+    ///
+    /// let tiled_metadata = metadata.to_tiled(0, &[2, 2]);
+    ///
     /// let original_shape = tiled_metadata.semantic_shape();
+    ///
+    /// assert_eq!(original_shape.as_slice(), &[8, 8]);
     /// ```
     pub fn semantic_shape(&self) -> Shape {
         let tiler = self
