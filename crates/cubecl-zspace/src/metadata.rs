@@ -14,9 +14,8 @@ pub struct Metadata {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Tiler {
-    start_axis: u8, // 0..256, représente un entier < rank
-    tile_size: SmallVec<[u16; 3]>, // 0..65k
-                    // 16 * 3 + 8 = 56 + Option: ~8 -> 64 bits
+    pub start_axis: u8,
+    pub tile_size: SmallVec<[u16; 3]>,
 }
 
 impl Metadata {
@@ -119,8 +118,11 @@ impl Metadata {
 
         let mut i = 0;
         #[allow(clippy::explicit_counter_loop)]
-        for j in start_axis..tile.len() {
-            assert!(self.shape[j].is_multiple_of(tile[i] as usize), "self.shape[{j}] must be divisible by tile[{i}]");
+        for j in start_axis..start_axis + tile.len() {
+            assert!(
+                self.shape[j].is_multiple_of(tile[i] as usize),
+                "self.shape[{j}] must be divisible by tile[{i}]"
+            );
             let dim = self.shape[j] / tile[i] as usize;
             new_metadata.push(dim, 0);
             i += 1;
