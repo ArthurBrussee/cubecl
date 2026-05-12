@@ -109,6 +109,20 @@ impl Metadata {
         self.strides.push(stride);
     }
 
+    /// Transforms a logical layout into a tiled physical layout.
+    ///
+    /// This performs rank expansion, splitting each dimension in the tiling range into
+    /// a grid component and a tile component: $D \rightarrow [D/T, T]$.
+    ///
+    /// The resulting physical shape is organized as:
+    /// `[Pre-axes, Grid-axes, Tile-axes, Post-axes]`
+    ///
+    /// # Example
+    /// ```
+    /// // Logical shape [4, 4], tile [2, 2]
+    /// // Physical shape becomes [2, 2, 2, 2]
+    /// let tiled = metadata.to_tiled(0, &[2, 2]);
+    /// ```
     pub fn to_tiled(&self, start_axis: u8, tile: &[u16]) -> Self {
         let start_axis = start_axis as usize;
         let mut new_metadata = Metadata::new(Shape::new([]), Strides::new(&[]));
@@ -147,6 +161,17 @@ impl Metadata {
         new_metadata
     }
 
+    /// Reconstructs the original logical shape from a tiled physical layout.
+    ///
+    /// This reverses the tiling process by collapsing the grid and tile pairs
+    /// back into their original dimensions: $[D/T, T] \rightarrow [D]$.
+    ///
+    /// # Example
+    /// ```
+    /// // Physical shape [2, 2, 2, 2] with 2x2 tiles
+    /// // Semantic shape returns [4, 4]
+    /// let original_shape = tiled_metadata.semantic_shape();
+    /// ```
     pub fn semantic_shape(&self) -> Shape {
         let tiler = self
             .tiler
