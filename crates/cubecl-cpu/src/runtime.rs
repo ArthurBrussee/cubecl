@@ -36,7 +36,8 @@ impl DeviceService for CpuServer {
         let options = RuntimeOptions::default();
         let max_cube_dim = (u32::MAX, u32::MAX, u32::MAX);
         let max_cube_count = (u32::MAX, u32::MAX, u32::MAX);
-        let system = System::new_all();
+        let mut system = System::new();
+        system.refresh_memory();
         let max_shared_memory_size = system
             .cgroup_limits()
             .map(|g| g.total_memory)

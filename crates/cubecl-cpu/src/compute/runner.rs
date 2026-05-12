@@ -68,7 +68,8 @@ impl Debug for KernelRunner {
 
 impl KernelRunner {
     pub fn new(logger: Arc<ServerLogger>) -> Self {
-        let system = System::new_all();
+        let mut system = System::new();
+        system.refresh_memory();
         let max_shared_memory_size = system
             .cgroup_limits()
             .map(|g| g.total_memory)
