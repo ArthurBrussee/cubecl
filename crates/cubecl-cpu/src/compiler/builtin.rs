@@ -3,15 +3,15 @@ use cubecl_core::{CubeDim, ir::Builtin};
 const NB_PASSED_BUILTIN: usize = 9;
 
 ///[
-///  cube_dim_x
-///  cube_dim_y
-///  cube_dim_z
-///  cube_count_x
-///  cube_count_y
-///  cube_count_z
-///  unit_pos_x
-///  unit_pos_y
-///  unit_pos_z
+///  `cube_dim_x`
+///  `cube_dim_y`
+///  `cube_dim_z`
+///  `cube_count_x`
+///  `cube_count_y`
+///  `cube_count_z`
+///  `unit_pos_x`
+///  `unit_pos_y`
+///  `unit_pos_z`
 ///]
 #[derive(Default, Debug, Clone)]
 pub struct BuiltinArray(pub [u32; NB_PASSED_BUILTIN]);
