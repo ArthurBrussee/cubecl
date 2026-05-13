@@ -199,6 +199,7 @@ fn register_features(
     comp_options.supports_vulkan = true;
     comp_options.supports_u64 = extended_feat.core.shader_int64 == TRUE;
     comp_options.vulkan.max_spirv_version = extended_feat.max_spirv_version;
+    comp_options.vulkan.max_vector_size = 4;
 
     props.features.plane.insert(Plane::Sync);
 
@@ -224,6 +225,15 @@ fn register_features(
         && wg_explicit_layout.workgroup_memory_explicit_layout == TRUE
     {
         comp_options.vulkan.supports_explicit_smem = true;
+    }
+
+    if let Some(long_vector) = &extended_feat.long_vector
+        && let Some(long_vector_properties) = &extended_feat.long_vector_properties
+        && long_vector.long_vector == TRUE
+    {
+        comp_options.vulkan.supports_long_vectors = true;
+        comp_options.vulkan.max_vector_size = long_vector_properties.max_vector_components as usize;
+        props.hardware.max_vector_size = long_vector_properties.max_vector_components as usize;
     }
 
     if let Some(maintenance_9) = &extended_feat.maintenance_9
