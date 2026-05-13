@@ -189,9 +189,9 @@ impl Metadata {
     /// ```
     pub fn semantic_shape(&self) -> Shape {
         if self.tiler.is_none() {
-            return self.clone().shape;
+            return self.shape.clone();
         }
-        let tiler = self.clone().tiler.unwrap();
+        let tiler = self.tiler.clone().unwrap();
 
         let start = tiler.start_axis as usize;
         let num_tiles = tiler.tile_size.len();
