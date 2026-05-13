@@ -6,23 +6,18 @@ use super::{
     worker::Worker,
 };
 use crate::{
-    CpuCompiler,
-    compiler::{MlirCompiler, MlirCompilerOptions, mlir_data::MlirData, mlir_engine::MlirEngine},
-    compute::{notification::Notifications, schedule::ScheduleTask},
+    compiler::{MlirCompiler, mlir_data::MlirData, mlir_engine::MlirEngine},
+    compute::notification::Notifications,
 };
 use cubecl_core::{
-    CubeDim, ExecutionMode, MemoryConfiguration, ir::MemoryDeviceProperties,
-    prelude::CompiledKernel,
+    CubeDim, MemoryConfiguration, ir::MemoryDeviceProperties, prelude::CompiledKernel,
 };
 use cubecl_runtime::{
-    compiler::{CompilationError, CubeTask},
-    id::KernelId,
     logging::ServerLogger,
     memory_management::{MemoryManagement, MemoryManagementOptions},
     storage::BytesStorage,
 };
 use std::{
-    collections::HashMap,
     fmt::Debug,
     sync::{Arc, atomic::Ordering},
 };
@@ -34,7 +29,6 @@ use sysinfo::System;
 /// To register work, you have to use the execution queue.
 pub struct KernelRunner {
     workers: Vec<Worker>,
-    compilation_cache: HashMap<KernelId, CpuKernel>,
     memory_management_shared_memory: MemoryManagement<BytesStorage>,
 }
 
@@ -96,53 +90,11 @@ impl KernelRunner {
             .map(|_| Worker::default())
             .collect();
 
-        let compilation_cache = HashMap::new();
-
         KernelRunner {
             workers,
-            compilation_cache,
             memory_management_shared_memory,
         }
     }
-    pub fn prepare(
-        &mut self,
-        kernel: Box<dyn CubeTask<CpuCompiler>>,
-        cube_count: [u32; 3],
-        bindings: BindingsResource,
-        kind: ExecutionMode,
-    ) -> Result<ScheduleTask, CompilationError> {
-        let kernel_id = kernel.id();
-        let kernel = if let Some(kernel) = self.compilation_cache.get(&kernel_id) {
-            kernel
-        } else {
-            let kernel = kernel.compile(
-                &mut Default::default(),
-                &MlirCompilerOptions::default(),
-                kind,
-                kernel.address_type(),
-            )?;
-            self.compilation_cache
-                .insert(kernel_id.clone(), CpuKernel::new(kernel));
-            self.compilation_cache
-                .get_mut(&kernel_id)
-                .expect("Just inserted")
-        };
-
-        let cube_dim = kernel.mlir.cube_dim;
-
-        let mlir_engine = kernel.mlir.repr.clone().unwrap();
-
-        let task = ScheduleTask::Execute {
-            mlir_engine,
-            bindings,
-            cube_dim,
-            cube_count,
-            kind,
-        };
-
-        Ok(task)
-    }
-
     pub fn execute_data(
         &mut self,
         mlir_engine: MlirEngine,
