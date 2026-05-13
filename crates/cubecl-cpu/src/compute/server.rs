@@ -155,9 +155,9 @@ impl CpuServer {
         let task = ScheduleTask::Execute {
             mlir_engine,
             bindings,
-            kind,
             cube_dim,
             cube_count,
+            kind,
         };
 
         Ok(task)

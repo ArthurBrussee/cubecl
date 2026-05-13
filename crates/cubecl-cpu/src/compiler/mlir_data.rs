@@ -3,6 +3,7 @@ use crate::{
     compiler::{builtin::BuiltinArray, memref::LineMemRef, passes::shared_memories::SharedMemory},
     compute::schedule::BindingsResource,
 };
+use cubecl_core::CubeDim;
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 use std::sync::Arc;
 
@@ -38,10 +39,12 @@ impl MlirData {
         bindings: BindingsResource,
         shared_memories: &SharedMemories,
         memory_management_shared_memory: &mut MemoryManagement<BytesStorage>,
+        cube_dim: CubeDim,
+        cube_count: [u32; 3],
     ) -> Self {
         let BindingsResource { resources, info } = bindings;
 
-        let builtin = BuiltinArray::default();
+        let builtin = BuiltinArray::new(cube_dim, cube_count);
         let max_buffer_size = resources.len() + BuiltinArray::len();
 
         let args_zero_indirection = Vec::with_capacity(max_buffer_size);
@@ -113,7 +116,7 @@ impl MlirData {
     }
 
     pub fn push_builtin(&mut self) {
-        for arg in self.builtin.dims.iter_mut() {
+        for arg in self.builtin.0.iter_mut() {
             self.args_second_indirection
                 .push(arg as *mut u32 as *mut ());
         }

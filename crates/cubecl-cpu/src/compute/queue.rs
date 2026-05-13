@@ -1,12 +1,13 @@
 use crate::{
     compiler::mlir_engine::MlirEngine,
     compute::{
+        notification::Notification,
         runner::KernelRunner,
         schedule::{BindingsResource, ScheduleTask},
     },
 };
 use cubecl_common::bytes::Bytes;
-use cubecl_core::{CubeDim, server::ExecutionMode};
+use cubecl_core::CubeDim;
 use cubecl_runtime::{logging::ServerLogger, storage::BytesResource};
 use std::sync::{Arc, OnceLock, mpsc::SyncSender};
 
@@ -22,7 +23,7 @@ pub struct CpuExecutionQueue {
 
 enum QueueItem {
     Task(ScheduleTask),
-    Flush(std::sync::mpsc::SyncSender<()>),
+    Flush(Notification),
 }
 
 impl CpuExecutionQueue {
@@ -33,9 +34,11 @@ impl CpuExecutionQueue {
 
     /// Flushes the queue, making sure all enqueued tasks before this point are executed.
     pub fn flush(&self) {
-        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        self.sender.send(QueueItem::Flush(sender)).unwrap();
-        receiver.recv().unwrap()
+        let notification = Notification::new();
+        self.sender
+            .send(QueueItem::Flush(notification.clone()))
+            .unwrap();
+        notification.wait();
     }
 
     /// Resolves the global execution queue instance.
@@ -55,7 +58,9 @@ impl CpuExecutionQueue {
                 match receiver.recv() {
                     Ok(item) => match item {
                         QueueItem::Task(task) => server.execute_task(task),
-                        QueueItem::Flush(sender) => sender.send(()).unwrap(),
+                        QueueItem::Flush(notification) => {
+                            notification.send();
+                        }
                     },
                     Err(err) => panic!("{err:?}"),
                 }
@@ -77,10 +82,10 @@ impl CpuExecutionQueueServer {
             ScheduleTask::Execute {
                 mlir_engine,
                 bindings,
-                kind,
                 cube_dim,
                 cube_count,
-            } => self.kernel(mlir_engine, bindings, kind, cube_dim, cube_count),
+                ..
+            } => self.kernel(mlir_engine, bindings, cube_dim, cube_count),
         }
     }
 
@@ -92,11 +97,10 @@ impl CpuExecutionQueueServer {
         &mut self,
         mlir_engine: MlirEngine,
         bindings: BindingsResource,
-        kind: ExecutionMode,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
     ) {
         self.runner
-            .execute_data(mlir_engine, bindings, kind, cube_dim, cube_count)
+            .execute_data(mlir_engine, bindings, cube_dim, cube_count)
     }
 }
