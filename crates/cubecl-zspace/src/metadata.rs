@@ -120,6 +120,7 @@ impl Metadata {
     /// # Example
     /// ```rust
     /// use cubecl_zspace::metadata::Metadata;
+    /// use cubecl_zspace::Shape;
     ///
     /// let shape = [4, 4];
     /// let strides = [4, 1];
@@ -127,7 +128,7 @@ impl Metadata {
     ///
     /// let tiled = metadata.to_tiled(0, &[2, 2]);
     ///
-    /// assert_eq!(tiled.semantic_shape().as_slice(), &[4, 4]);
+    /// assert_eq!(tiled.shape, Shape::new([2, 2, 2, 2]));
     /// ```
     pub fn to_tiled(&self, start_axis: u8, tile: &[u16]) -> Self {
         let start_axis = start_axis as usize;
@@ -187,10 +188,10 @@ impl Metadata {
     /// assert_eq!(original_shape.as_slice(), &[8, 8]);
     /// ```
     pub fn semantic_shape(&self) -> Shape {
-        let tiler = self
-            .tiler
-            .as_ref()
-            .expect("Metadata must be tiled to reconstruct semantic shape");
+        if self.tiler.is_none() {
+            return self.clone().shape;
+        }
+        let tiler = self.clone().tiler.unwrap();
 
         let start = tiler.start_axis as usize;
         let num_tiles = tiler.tile_size.len();
