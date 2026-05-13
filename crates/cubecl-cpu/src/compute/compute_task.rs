@@ -37,14 +37,10 @@ pub fn sync_cube() {
     }
 }
 
-pub enum Message {
-    ComputeTask(ComputeTask),
-    EndTask(Notifications),
-}
-
 pub struct ComputeTask {
     pub mlir_engine: MlirEngine,
     pub mlir_data: MlirData,
+    pub notifications: Notifications,
 }
 
 impl ComputeTask {
@@ -54,5 +50,6 @@ impl ComputeTask {
             self.mlir_engine.run_kernel(&mut self.mlir_data);
         }
         CURRENT_CUBE_DIM.fetch_sub(1, Ordering::AcqRel);
+        self.notifications.send();
     }
 }

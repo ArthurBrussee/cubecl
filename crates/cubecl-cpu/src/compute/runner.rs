@@ -181,12 +181,13 @@ impl KernelRunner {
                     let mut mlir_data = mlir_data.clone();
                     mlir_data.builtin.set_unit_pos(unit_pos);
 
+                    let notifications = notifications.clone();
                     let compute_task = ComputeTask {
                         mlir_engine,
                         mlir_data,
+                        notifications,
                     };
                     worker.send_task(compute_task);
-                    worker.send_stop(notifications.clone());
                 }
             }
         }

@@ -1,9 +1,7 @@
 use std::sync::mpsc;
 use std::thread;
 
-use crate::compute::notification::Notifications;
-
-use super::compute_task::{ComputeTask, Message};
+use super::compute_task::ComputeTask;
 
 pub const MAX_STACK_SIZE: usize = 16 * 1024 * 1024;
 pub const DEFAULT_STACK_SIZE: usize = 64 * 1024 * 1024;
@@ -25,7 +23,7 @@ fn resolve_stack_size() -> usize {
 #[derive(Debug)]
 pub struct Worker {
     // TODO: A circular sync buffer with cache alignment would be a better fit, but for the moment a mpsc channel will do the job.
-    tx: mpsc::Sender<Message>,
+    tx: mpsc::Sender<ComputeTask>,
 }
 
 impl Default for Worker {
@@ -42,25 +40,18 @@ impl Default for Worker {
 
 impl Worker {
     pub fn send_task(&mut self, compute_task: ComputeTask) {
-        self.tx.send(Message::ComputeTask(compute_task)).unwrap();
-    }
-
-    pub fn send_stop(&mut self, notifications: Notifications) {
-        self.tx.send(Message::EndTask(notifications)).unwrap();
+        self.tx.send(compute_task).unwrap();
     }
 }
 
 struct InnerWorker {
-    rx: mpsc::Receiver<Message>,
+    rx: mpsc::Receiver<ComputeTask>,
 }
 
 impl InnerWorker {
     fn work(self) {
-        for msg in self.rx.into_iter() {
-            match msg {
-                Message::ComputeTask(compute_task) => compute_task.compute(),
-                Message::EndTask(end_task) => end_task.send(),
-            }
+        for compute_task in self.rx.into_iter() {
+            compute_task.compute();
         }
     }
 }
