@@ -1,19 +1,18 @@
-/// Struct used inside the CPUExecutionQueue to send the flush command
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
     thread::{self, Thread},
 };
 
+const MAX_SPIN_ITERATION: u16 = 8192;
+
 #[derive(Clone)]
-pub(super) struct Notification {
+pub struct Notification {
     ready: Arc<AtomicBool>,
     current_thread: Thread,
 }
-
-const MAX_SPIN_ITERATION: u16 = 8192;
 
 impl Notification {
     #[inline]
@@ -42,6 +41,46 @@ impl Notification {
         }
 
         while !self.ready.load(Ordering::Acquire) {
+            std::thread::park();
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Notifications {
+    ready: Arc<AtomicU32>,
+    current_thread: Thread,
+}
+
+impl Notifications {
+    #[inline]
+    pub fn new(max_notification: u32) -> Self {
+        let ready = Arc::new(AtomicU32::new(max_notification));
+        let current_thread = thread::current();
+        Self {
+            ready,
+            current_thread,
+        }
+    }
+
+    #[inline]
+    pub fn send(&self) {
+        let value = self.ready.fetch_sub(1, Ordering::AcqRel);
+        if value == 1 {
+            self.current_thread.unpark();
+        }
+    }
+
+    #[inline]
+    pub fn wait(&self) {
+        for _ in 0..MAX_SPIN_ITERATION {
+            if self.ready.load(Ordering::Acquire) == 0 {
+                return;
+            }
+            std::hint::spin_loop();
+        }
+
+        while self.ready.load(Ordering::Acquire) != 0 {
             std::thread::park();
         }
     }

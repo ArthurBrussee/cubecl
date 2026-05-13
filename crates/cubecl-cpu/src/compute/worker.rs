@@ -1,6 +1,8 @@
 use std::sync::mpsc;
 use std::thread;
 
+use crate::compute::notification::Notifications;
+
 use super::compute_task::{ComputeTask, Message};
 
 pub const MAX_STACK_SIZE: usize = 16 * 1024 * 1024;
@@ -43,8 +45,8 @@ impl Worker {
         self.tx.send(Message::ComputeTask(compute_task)).unwrap();
     }
 
-    pub fn send_stop(&mut self, callback: mpsc::Sender<()>) {
-        self.tx.send(Message::EndTask(callback)).unwrap();
+    pub fn send_stop(&mut self, notifications: Notifications) {
+        self.tx.send(Message::EndTask(notifications)).unwrap();
     }
 }
 
@@ -57,7 +59,7 @@ impl InnerWorker {
         for msg in self.rx.into_iter() {
             match msg {
                 Message::ComputeTask(compute_task) => compute_task.compute(),
-                Message::EndTask(end_task) => end_task.send(()).unwrap(),
+                Message::EndTask(end_task) => end_task.send(),
             }
         }
     }

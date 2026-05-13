@@ -8,7 +8,7 @@ use super::{
 use crate::{
     CpuCompiler,
     compiler::{MlirCompiler, MlirCompilerOptions, mlir_data::MlirData, mlir_engine::MlirEngine},
-    compute::schedule::ScheduleTask,
+    compute::{notification::Notifications, schedule::ScheduleTask},
 };
 use cubecl_core::{
     CubeDim, ExecutionMode, MemoryConfiguration, ir::MemoryDeviceProperties,
@@ -24,7 +24,7 @@ use cubecl_runtime::{
 use std::{
     collections::HashMap,
     fmt::Debug,
-    sync::{Arc, atomic::Ordering, mpsc},
+    sync::{Arc, atomic::Ordering},
 };
 use sysinfo::System;
 
@@ -151,8 +151,6 @@ impl KernelRunner {
         cube_dim: CubeDim,
         cube_count: [u32; 3],
     ) {
-        let (send, receive) = mpsc::channel();
-        let mut msg_count = 0;
         let cube_dim_size = cube_dim.num_elems();
 
         BARRIER_TARGET.store(cube_dim_size as i32, Ordering::Release);
@@ -173,6 +171,7 @@ impl KernelRunner {
         mlir_data.builtin.set_cube_dim(cube_dim);
         mlir_data.builtin.set_cube_count(cube_count);
 
+        let notifications = Notifications::new(cube_dim.num_elems());
         let mut workers = self.workers.iter_mut();
         for unit_pos_x in 0..cube_dim.x {
             for unit_pos_y in 0..cube_dim.y {
@@ -188,18 +187,12 @@ impl KernelRunner {
                         unit_pos,
                         kind,
                     };
-                    msg_count += 1;
                     worker.send_task(compute_task);
-                    worker.send_stop(send.clone());
+                    worker.send_stop(notifications.clone());
                 }
             }
         }
 
-        for _ in receive.into_iter() {
-            msg_count -= 1;
-            if msg_count == 0 {
-                break;
-            }
-        }
+        notifications.wait();
     }
 }

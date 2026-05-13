@@ -1,10 +1,10 @@
 use cubecl_core::server::ExecutionMode;
 
-use crate::compiler::{mlir_data::MlirData, mlir_engine::MlirEngine};
-use std::sync::{
-    atomic::{AtomicI32, Ordering},
-    mpsc,
+use crate::{
+    compiler::{mlir_data::MlirData, mlir_engine::MlirEngine},
+    compute::notification::Notifications,
 };
+use std::sync::atomic::{AtomicI32, Ordering};
 
 pub static BARRIER_COUNTER: AtomicI32 = AtomicI32::new(0);
 pub static STOPPED_COUNTER: AtomicI32 = AtomicI32::new(0);
@@ -41,7 +41,7 @@ pub fn sync_cube() {
 
 pub enum Message {
     ComputeTask(ComputeTask),
-    EndTask(mpsc::Sender<()>),
+    EndTask(Notifications),
 }
 
 pub struct ComputeTask {
