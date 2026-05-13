@@ -135,9 +135,9 @@ impl KernelRunner {
         let task = ScheduleTask::Execute {
             mlir_engine,
             bindings,
-            kind,
             cube_dim,
             cube_count,
+            kind,
         };
 
         Ok(task)
@@ -147,7 +147,6 @@ impl KernelRunner {
         &mut self,
         mlir_engine: MlirEngine,
         resources: BindingsResource,
-        kind: ExecutionMode,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
     ) {
@@ -163,15 +162,15 @@ impl KernelRunner {
                 .extend((0..cube_dim_size - self.workers.len() as u32).map(|_| Worker::default()));
         }
 
-        let mut mlir_data = MlirData::new(
+        let mlir_data = MlirData::new(
             resources,
             &mlir_engine.0.shared_memories,
             &mut self.memory_management_shared_memory,
+            cube_dim,
+            cube_count,
         );
-        mlir_data.builtin.set_cube_dim(cube_dim);
-        mlir_data.builtin.set_cube_count(cube_count);
 
-        let notifications = Notifications::new(cube_dim.num_elems());
+        let notifications = Notifications::new(cube_dim_size);
         let mut workers = self.workers.iter_mut();
         for unit_pos_x in 0..cube_dim.x {
             for unit_pos_y in 0..cube_dim.y {
@@ -179,13 +178,12 @@ impl KernelRunner {
                     let unit_pos = [unit_pos_x, unit_pos_y, unit_pos_z];
                     let worker = workers.next().expect("The CubeDim are too large");
                     let mlir_engine = mlir_engine.clone();
-                    let mlir_data = mlir_data.clone();
+                    let mut mlir_data = mlir_data.clone();
+                    mlir_data.builtin.set_unit_pos(unit_pos);
 
                     let compute_task = ComputeTask {
                         mlir_engine,
                         mlir_data,
-                        unit_pos,
-                        kind,
                     };
                     worker.send_task(compute_task);
                     worker.send_stop(notifications.clone());

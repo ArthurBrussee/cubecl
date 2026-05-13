@@ -1,5 +1,3 @@
-use cubecl_core::server::ExecutionMode;
-
 use crate::{
     compiler::{mlir_data::MlirData, mlir_engine::MlirEngine},
     compute::notification::Notifications,
@@ -47,14 +45,11 @@ pub enum Message {
 pub struct ComputeTask {
     pub mlir_engine: MlirEngine,
     pub mlir_data: MlirData,
-    pub unit_pos: [u32; 3],
-    pub kind: ExecutionMode,
 }
 
 impl ComputeTask {
     pub fn compute(mut self) {
         self.mlir_data.push_builtin();
-        self.mlir_data.builtin.set_unit_pos(self.unit_pos);
         unsafe {
             self.mlir_engine.run_kernel(&mut self.mlir_data);
         }

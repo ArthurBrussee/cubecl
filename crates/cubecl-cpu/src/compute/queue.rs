@@ -7,7 +7,7 @@ use crate::{
     },
 };
 use cubecl_common::bytes::Bytes;
-use cubecl_core::{CubeDim, server::ExecutionMode};
+use cubecl_core::CubeDim;
 use cubecl_runtime::{logging::ServerLogger, storage::BytesResource};
 use std::sync::{Arc, OnceLock, mpsc::SyncSender};
 
@@ -82,10 +82,10 @@ impl CpuExecutionQueueServer {
             ScheduleTask::Execute {
                 mlir_engine,
                 bindings,
-                kind,
                 cube_dim,
                 cube_count,
-            } => self.kernel(mlir_engine, bindings, kind, cube_dim, cube_count),
+                ..
+            } => self.kernel(mlir_engine, bindings, cube_dim, cube_count),
         }
     }
 
@@ -97,11 +97,10 @@ impl CpuExecutionQueueServer {
         &mut self,
         mlir_engine: MlirEngine,
         bindings: BindingsResource,
-        kind: ExecutionMode,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
     ) {
         self.runner
-            .execute_data(mlir_engine, bindings, kind, cube_dim, cube_count)
+            .execute_data(mlir_engine, bindings, cube_dim, cube_count)
     }
 }
