@@ -3,10 +3,10 @@ use std::{println, vec::Vec};
 use crate::{self as cubecl};
 
 use cubecl::prelude::*;
-use cubecl_ir::{StorageType, features::AtomicUsage};
+use cubecl_ir::features::AtomicUsage;
 
 #[cube(launch)]
-pub fn kernel_atomic_add<I: Numeric, N: Size>(output: &mut Array<Atomic<Vector<I, N>>>) {
+pub fn kernel_atomic_add<I: Numeric, N: Size>(output: &mut [Atomic<Vector<I, N>>]) {
     if UNIT_POS == 0 {
         output[0].fetch_add(Vector::from_int(5));
     }
@@ -17,9 +17,8 @@ fn supports_feature<R: Runtime, F: Numeric>(
     feat: AtomicUsage,
     vector_size: usize,
 ) -> bool {
-    let ty = StorageType::Atomic(F::as_type_native_unchecked().elem_type());
-    let vector = Type::new(ty).with_vector_size(vector_size);
-    client.properties().atomic_type_usage(vector).contains(feat)
+    let ty = Type::atomic(F::as_type_native_unchecked().with_vector_size(vector_size));
+    client.properties().atomic_type_usage(ty).contains(feat)
 }
 
 pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(
@@ -49,7 +48,7 @@ pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
         vector_size,
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), vector_size) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), vector_size) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -59,7 +58,7 @@ pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(
 }
 
 #[cube(launch)]
-pub fn kernel_atomic_min<I: Numeric, N: Size>(output: &mut Array<Atomic<Vector<I, N>>>) {
+pub fn kernel_atomic_min<I: Numeric, N: Size>(output: &mut [Atomic<Vector<I, N>>]) {
     if UNIT_POS == 0 {
         output[0].fetch_min(Vector::from_int(5));
     }
@@ -91,7 +90,7 @@ pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         vector_size,
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), vector_size) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), vector_size) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -101,7 +100,7 @@ pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(
 }
 
 #[cube(launch)]
-pub fn kernel_atomic_max<I: Numeric, N: Size>(output: &mut Array<Atomic<Vector<I, N>>>) {
+pub fn kernel_atomic_max<I: Numeric, N: Size>(output: &mut [Atomic<Vector<I, N>>]) {
     if UNIT_POS == 0 {
         output[0].fetch_max(Vector::from_int(5));
     }
@@ -133,7 +132,7 @@ pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         vector_size,
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), vector_size) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), vector_size) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -143,7 +142,7 @@ pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(
 }
 
 #[cube(launch)]
-fn regression_issue_1218_kernel(x: Array<Atomic<u32>>) {
+fn regression_issue_1218_kernel(x: &[Atomic<u32>]) {
     x[0].store(0);
 }
 
@@ -157,7 +156,7 @@ pub fn test_regression_issue_1218<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 1) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
     );
 
     let actual = client.read_one_unchecked(handle);

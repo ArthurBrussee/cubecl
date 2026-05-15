@@ -1,19 +1,16 @@
 use quote::{ToTokens, format_ident, quote};
 use syn::{
     FnArg, GenericArgument, Generics, Ident, ImplItem, ItemImpl, PathArguments, Token, Type,
-    TypePath, parse_quote, spanned::Spanned, visit_mut::VisitMut,
+    TypePath, spanned::Spanned, visit_mut::VisitMut,
 };
 
 use crate::{
     ReplaceDefines,
-    parse::kernel::{KernelArgs, KernelBody, SelfType},
+    parse::kernel::{KernelArgs, KernelBody},
     scope::Context,
 };
 
-use super::{
-    helpers::{RemoveHelpers, ReplaceIndices},
-    kernel::KernelFn,
-};
+use super::{helpers::RemoveHelpers, kernel::KernelFn};
 
 pub struct CubeImpl {
     pub unsafety: Option<Token![unsafe]>,
@@ -48,12 +45,13 @@ impl CubeImplItem {
                     .iter()
                     .any(|param| matches!(param, FnArg::Receiver(_)));
                 let func_name_expand = format_ident!("__expand_{}", func.sig.ident);
-                let mut func =
-                    KernelFn::from_sig_and_block(func.vis, func.sig, func.block, full_name, args)?;
+                let mut func = KernelFn::from_sig_and_block(
+                    func.attrs, func.vis, func.sig, func.block, full_name, args,
+                )?;
 
                 if is_method {
                     let method = Self::handle_method_expand(func_name_expand, &mut func);
-                    let func_expand = Self::create_func_expand(struct_ty_name, &func, true, args);
+                    let func_expand = Self::create_func_expand(struct_ty_name, &func, true);
 
                     vec![
                         CubeImplItem::Fn(func),
@@ -63,7 +61,7 @@ impl CubeImplItem {
                 } else {
                     func.sig.name = func_name_expand;
 
-                    let func_expand = Self::create_func_expand(struct_ty_name, &func, false, args);
+                    let func_expand = Self::create_func_expand(struct_ty_name, &func, false);
                     vec![CubeImplItem::Fn(func), CubeImplItem::FnExpand(func_expand)]
                 }
             }
@@ -117,10 +115,13 @@ impl CubeImplItem {
         func.sig.receiver_arg = None;
         let param = func.sig.parameters.first_mut().expect("Should be a method");
         param.name = Ident::new("this", param.span());
+        param.mutability = Some(Token![mut](param.span()));
 
         let args = func.sig.parameters.iter().skip(1).map(|param| &param.name);
         let method_name = &method_sig.name;
-        let (_, generics, _) = &method_sig.generics.split_for_impl();
+
+        let call_generics = method_sig.call_generics();
+        let (_, generics, _) = &call_generics.split_for_impl();
         let generics = generics.as_turbofish();
 
         let mut body = KernelBody::Verbatim(quote! {
@@ -135,6 +136,7 @@ impl CubeImplItem {
 
         let cfg_debug = cfg!(debug_symbols) && !func.args.no_debug_symbols.is_present();
         KernelFn {
+            attrs: func.attrs.clone(),
             vis: func.vis.clone(),
             sig: method_sig,
             body,
@@ -154,12 +156,7 @@ impl CubeImplItem {
     ///
     /// This is important since it allows to use the Self keyword inside
     /// methods.
-    fn create_func_expand(
-        struct_ty_name: &Type,
-        func: &KernelFn,
-        is_method: bool,
-        args: &KernelArgs,
-    ) -> KernelFn {
+    fn create_func_expand(struct_ty_name: &Type, func: &KernelFn, is_method: bool) -> KernelFn {
         let mut func_sig = func.sig.clone();
 
         // Since the function is associated to the expand type, we have to update the
@@ -177,11 +174,8 @@ impl CubeImplItem {
             && is_method
         {
             param.name = Ident::new("this", param.span());
-            param.normalized_ty = match args.self_type {
-                SelfType::Owned => parse_quote!(Self),
-                SelfType::Ref => parse_quote!(&Self),
-                SelfType::RefMut => parse_quote!(&mut Self),
-            };
+            param.normalized_ty = param.ty.clone();
+            param.mutability = Some(Token![mut](param.span()));
             func_sig.receiver_arg = None;
         }
         func_sig.plain_self();
@@ -189,7 +183,10 @@ impl CubeImplItem {
         let args = func_sig.parameters.iter().map(|param| &param.name);
         let struct_name = format_type_with_turbofish(struct_ty_name);
         let fn_name = &func_sig.name;
-        let (_, generics, _) = &func_sig.generics.split_for_impl();
+
+        let call_generics = func_sig.call_generics();
+
+        let (_, generics, _) = &call_generics.split_for_impl();
         let generics = generics.as_turbofish();
 
         let body = quote! {
@@ -201,6 +198,7 @@ impl CubeImplItem {
 
         let cfg_debug = cfg!(debug_symbols) && !func.args.no_debug_symbols.is_present();
         KernelFn {
+            attrs: func.attrs.clone(),
             vis: func.vis.clone(),
             sig: func_sig,
             body: KernelBody::Verbatim(body),
@@ -235,7 +233,6 @@ impl CubeImpl {
             .collect::<Result<_, _>>()?;
 
         RemoveHelpers.visit_item_impl_mut(&mut item_impl);
-        ReplaceIndices.visit_item_impl_mut(&mut item_impl);
         ReplaceDefines.visit_item_impl_mut(&mut item_impl);
 
         let mut attrs = item_impl.attrs;

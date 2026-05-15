@@ -324,6 +324,8 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         min_tensor_cores_dim: None,
         num_cpu_cores: None, // TODO: Check if device is CPU.
         max_vector_size: 4,
+        // Init later if extension is enabled
+        cube_mma_reserved_shared_memory: 0,
     };
 
     let mut compilation_options = Default::default();
@@ -393,8 +395,7 @@ pub(crate) async fn create_setup_for_device(
     let (device, queue) = backend::request_device(&adapter).await;
 
     log::info!(
-        "Created wgpu compute server on device {:?} => {:?}",
-        device,
+        "Created wgpu compute server on device {:?}",
         adapter.get_info()
     );
 
@@ -491,8 +492,6 @@ async fn request_adapter(
         }
     };
 
-    log::info!("Using adapter {:?}", adapter.get_info());
-
     (instance, adapter)
 }
 
@@ -505,6 +504,7 @@ async fn request_adapter_with_preference(
             power_preference,
             force_fallback_adapter: false,
             compatible_surface: None,
+            ..RequestAdapterOptions::default()
         })
         .await
         .expect("No possible adapter available for backend. Falling back to first available.")

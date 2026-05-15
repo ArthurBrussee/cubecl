@@ -1,13 +1,12 @@
 use cubecl_ir::{
-    Arithmetic, AtomicOp, BarrierOps, BinaryOperator, Bitwise, Comparison, CoopMma, Instruction,
-    Metadata, NonSemantic, Operation, Operator, Plane, TmaOps, UnaryOperator, Variable,
+    Arithmetic, AtomicBinaryOperands, AtomicOp, BarrierOps, BinaryOperands, Bitwise, Comparison,
+    CoopMma, Instruction, Memory, Metadata, NonSemantic, Operation, OperationReflect, Operator,
+    Plane, TensorIndexingOps, TmaOps, UnaryOperands, Variable,
 };
 
-use crate::ControlFlow;
+use crate::{ControlFlow, Function, GlobalState, analyses::pointer_source::PointerSource};
 
-use super::Optimizer;
-
-impl Optimizer {
+impl Function {
     pub fn visit_out(
         &mut self,
         var: &mut Option<Variable>,
@@ -18,45 +17,82 @@ impl Optimizer {
         }
     }
 
+    /// Visit an instruction with only a write visitor. Visits both `out` and any pointer writes.
+    pub fn visit_instruction_write(
+        &mut self,
+        state: &GlobalState,
+        inst: &mut Instruction,
+        mut visit_write: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        let pointer_source = self.analysis::<PointerSource>(state);
+        for ptr in inst.operation.write_pointers() {
+            if let Some(source) = pointer_source.borrow_mut().get_mut(&ptr) {
+                visit_write(self, source);
+            }
+        }
+
+        // This is hacky, because semantics for insert are very awkward.
+        if let Operation::Operator(Operator::InsertComponent(_)) = &mut inst.operation
+            && let Some(source) = pointer_source.borrow_mut().get_mut(&inst.out())
+        {
+            visit_write(self, source);
+        }
+
+        self.visit_out(&mut inst.out, visit_write);
+    }
+
     /// Visit an operation with a set of read and write visitors. Each visitor will be called with
     /// each read or written to variable.
     pub fn visit_instruction(
         &mut self,
+        state: &GlobalState,
         inst: &mut Instruction,
         visit_read: impl FnMut(&mut Self, &mut Variable),
         visit_write: impl FnMut(&mut Self, &mut Variable),
     ) {
-        self.visit_out(&mut inst.out, visit_write);
-        self.visit_operation(&mut inst.operation, &mut inst.out, visit_read);
+        self.visit_operation(state, &mut inst.operation, visit_read);
+        self.visit_instruction_write(state, inst, visit_write);
     }
 
     /// Visit an operation with a set of read and write visitors. Each visitor will be called with
     /// each read or written to variable.
     pub fn visit_operation(
         &mut self,
+        state: &GlobalState,
         op: &mut Operation,
-        out: &mut Option<Variable>,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
+        let pointer_source = self.analysis::<PointerSource>(state);
+        for ptr in op.read_pointers() {
+            if let Some(source) = pointer_source.borrow_mut().get_mut(&ptr) {
+                visit_read(self, source);
+            }
+        }
+
         match op {
             Operation::Copy(variable) => visit_read(self, variable),
+            Operation::Memory(memory) => self.visit_memory(memory, visit_read),
             Operation::Arithmetic(arithmetic) => self.visit_arithmetic(arithmetic, visit_read),
             Operation::Comparison(comparison) => self.visit_compare(comparison, visit_read),
             Operation::Bitwise(bitwise) => self.visit_bitwise(bitwise, visit_read),
             Operation::Operator(operator) => self.visit_operator(operator, visit_read),
-            Operation::Atomic(atomic) => self.visit_atomic(atomic, out, visit_read),
+            Operation::Atomic(atomic) => self.visit_atomic(atomic, visit_read),
             Operation::Metadata(meta) => self.visit_meta(meta, visit_read),
             // Sync has no outputs
             Operation::Synchronization(_) => {}
             Operation::Plane(plane) => self.visit_plane(plane, visit_read),
-            Operation::CoopMma(coop_mma) => self.visit_cmma(coop_mma, visit_read),
+            Operation::CoopMma(coop_mma) => self.visit_cmma(state, coop_mma, visit_read),
             Operation::Branch(_) => unreachable!(),
             Operation::Barrier(barrier_ops) => self.visit_barrier(barrier_ops, visit_read),
             Operation::Tma(tma_ops) => self.visit_tma(tma_ops, visit_read),
+            Operation::TensorIndexing(tensor_ops) => self.visit_tensor_ops(tensor_ops, visit_read),
             Operation::NonSemantic(non_semantic) => {
                 self.visit_nonsemantic(non_semantic, visit_read)
             }
             Operation::Marker(_) => {}
+            Operation::ConstructAggregate(..) | Operation::ExtractAggregateField(..) => {
+                unreachable!("Should be disaggregated at this point")
+            }
         }
     }
 
@@ -72,7 +108,12 @@ impl Optimizer {
             ControlFlow::Switch { value, .. } => visit_read(self, value),
             ControlFlow::Loop { .. } => {}
             ControlFlow::LoopBreak { break_cond, .. } => visit_read(self, break_cond),
-            ControlFlow::Return | ControlFlow::Unreachable | ControlFlow::None => {}
+            ControlFlow::Return { value } => {
+                if let Some(value) = value {
+                    visit_read(self, value);
+                }
+            }
+            ControlFlow::Unreachable | ControlFlow::None => {}
         }
     }
 
@@ -99,10 +140,10 @@ impl Optimizer {
             | Arithmetic::Powi(binary_operator)
             | Arithmetic::Hypot(binary_operator)
             | Arithmetic::Rhypot(binary_operator)
-            | Arithmetic::Modulo(binary_operator)
+            | Arithmetic::ModFloor(binary_operator)
             | Arithmetic::Max(binary_operator)
             | Arithmetic::Min(binary_operator)
-            | Arithmetic::Remainder(binary_operator)
+            | Arithmetic::Rem(binary_operator)
             | Arithmetic::Dot(binary_operator)
             | Arithmetic::MulHi(binary_operator)
             | Arithmetic::ArcTan2(binary_operator) => self.visit_binop(binary_operator, visit_read),
@@ -191,6 +232,31 @@ impl Optimizer {
         }
     }
 
+    pub fn visit_memory(
+        &mut self,
+        memory: &mut Memory,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match memory {
+            Memory::Reference(variable) => visit_read(self, variable),
+            Memory::Index(index_operator) => {
+                visit_read(self, &mut index_operator.list);
+                visit_read(self, &mut index_operator.index);
+            }
+            Memory::Load(variable) => {
+                visit_read(self, variable);
+            }
+            Memory::Store(op) => {
+                visit_read(self, &mut op.ptr);
+                visit_read(self, &mut op.value);
+            }
+            Memory::CopyMemory(op) => {
+                visit_read(self, &mut op.source);
+                visit_read(self, &mut op.target);
+            }
+        }
+    }
+
     /// Visit an operator with a set of read and write visitors. Each visitor will be called with
     /// each read or written to variable.
     pub fn visit_operator(
@@ -199,34 +265,23 @@ impl Optimizer {
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match op {
-            Operator::And(binary_operator) | Operator::Or(binary_operator) => {
+            Operator::And(binary_operator)
+            | Operator::Or(binary_operator)
+            | Operator::ExtractComponent(binary_operator) => {
                 self.visit_binop(binary_operator, visit_read)
             }
             Operator::Not(unary_operator)
             | Operator::Cast(unary_operator)
             | Operator::Reinterpret(unary_operator) => self.visit_unop(unary_operator, visit_read),
-            Operator::Index(index_operator) | Operator::UncheckedIndex(index_operator) => {
-                visit_read(self, &mut index_operator.list);
-                visit_read(self, &mut index_operator.index);
-            }
-            Operator::IndexAssign(op) | Operator::UncheckedIndexAssign(op) => {
-                visit_read(self, &mut op.index);
-                visit_read(self, &mut op.value);
-            }
             Operator::InitVector(vector_init_operator) => {
                 for input in &mut vector_init_operator.inputs {
                     visit_read(self, input)
                 }
             }
-            Operator::CopyMemory(copy_operator) => {
-                visit_read(self, &mut copy_operator.input);
-                visit_read(self, &mut copy_operator.in_index);
-                visit_read(self, &mut copy_operator.out_index);
-            }
-            Operator::CopyMemoryBulk(copy_bulk_operator) => {
-                visit_read(self, &mut copy_bulk_operator.input);
-                visit_read(self, &mut copy_bulk_operator.in_index);
-                visit_read(self, &mut copy_bulk_operator.out_index);
+            Operator::InsertComponent(vector_insert_operator) => {
+                visit_read(self, &mut vector_insert_operator.vector);
+                visit_read(self, &mut vector_insert_operator.index);
+                visit_read(self, &mut vector_insert_operator.value);
             }
             Operator::Select(select) => {
                 visit_read(self, &mut select.cond);
@@ -239,7 +294,6 @@ impl Optimizer {
     fn visit_atomic(
         &mut self,
         atomic: &mut AtomicOp,
-        out: &mut Option<Variable>,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match atomic {
@@ -251,14 +305,12 @@ impl Optimizer {
             | AtomicOp::Or(binary_operator)
             | AtomicOp::Xor(binary_operator)
             | AtomicOp::Swap(binary_operator) => {
-                self.visit_binop(binary_operator, visit_read);
+                self.visit_atomic_binop(binary_operator, visit_read);
             }
-            AtomicOp::Load(unary_operator) => {
-                self.visit_unop(unary_operator, visit_read);
-            }
-            AtomicOp::Store(unary_operator) => {
-                visit_read(self, out.as_mut().unwrap());
-                self.visit_unop(unary_operator, visit_read);
+            AtomicOp::Load(ptr) => visit_read(self, ptr),
+            AtomicOp::Store(store) => {
+                visit_read(self, &mut store.ptr);
+                visit_read(self, &mut store.value);
             }
             AtomicOp::CompareAndSwap(op) => {
                 visit_read(self, &mut op.cmp);
@@ -272,23 +324,14 @@ impl Optimizer {
         metadata: &mut Metadata,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
+        // Don't count buffer as a read, since it's actually the info buffer that's read.
         match metadata {
-            Metadata::Rank { var } => {
-                visit_read(self, var);
-            }
-            Metadata::Stride { dim, var } => {
+            Metadata::BufferLength { .. } => {}
+            Metadata::Stride { dim, .. } => {
                 visit_read(self, dim);
-                visit_read(self, var);
             }
-            Metadata::Shape { dim, var } => {
+            Metadata::Shape { dim, .. } => {
                 visit_read(self, dim);
-                visit_read(self, var);
-            }
-            Metadata::Length { var } => {
-                visit_read(self, var);
-            }
-            Metadata::BufferLength { var } => {
-                visit_read(self, var);
             }
         }
     }
@@ -317,6 +360,7 @@ impl Optimizer {
 
     fn visit_cmma(
         &mut self,
+        state: &GlobalState,
         cmma: &mut CoopMma,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
@@ -325,14 +369,23 @@ impl Optimizer {
                 visit_read(self, value);
             }
             CoopMma::Load {
-                value,
+                ptr,
                 stride,
-                offset,
                 layout: _,
             } => {
-                visit_read(self, value);
+                visit_read(self, ptr);
                 visit_read(self, stride);
-                visit_read(self, offset);
+            }
+            CoopMma::LoadTensor {
+                buffer,
+                layout,
+                view,
+            } => {
+                visit_read(self, buffer);
+                visit_read(self, layout);
+                if let Some(view) = view {
+                    visit_read(self, view);
+                }
             }
             CoopMma::Execute {
                 mat_a,
@@ -346,12 +399,19 @@ impl Optimizer {
             CoopMma::Store {
                 mat,
                 stride,
-                offset,
+                destination,
                 layout: _,
             } => {
                 visit_read(self, mat);
                 visit_read(self, stride);
-                visit_read(self, offset);
+                visit_read(self, destination);
+            }
+            CoopMma::StoreTensor { mat, layout, view } => {
+                visit_read(self, mat);
+                visit_read(self, layout);
+                if let Some(view) = view {
+                    visit_read(self, view);
+                }
             }
             CoopMma::Cast { input } => {
                 visit_read(self, input);
@@ -364,14 +424,10 @@ impl Optimizer {
                 visit_read(self, lane_id);
                 visit_read(self, i);
             }
-            CoopMma::LoadMatrix { buffer, offset, .. } => {
-                visit_read(self, buffer);
-                visit_read(self, offset);
+            CoopMma::LoadMatrix { ptr, .. } => {
+                visit_read(self, ptr);
             }
-            CoopMma::StoreMatrix {
-                offset, registers, ..
-            } => {
-                visit_read(self, offset);
+            CoopMma::StoreMatrix { registers, .. } => {
                 visit_read(self, registers);
             }
             CoopMma::ExecuteManual {
@@ -397,6 +453,13 @@ impl Optimizer {
                 visit_read(self, registers_c);
                 visit_read(self, scales_a);
                 visit_read(self, scales_b);
+            }
+            CoopMma::ExecuteElementwise { matrix, op } => {
+                visit_read(self, matrix);
+                let func = &state.extra_functions[op];
+                for mut capture in func.implicit_params.clone() {
+                    visit_read(self, &mut capture)
+                }
             }
         }
     }
@@ -428,63 +491,53 @@ impl Optimizer {
             BarrierOps::MemCopyAsync {
                 barrier,
                 source,
+                destination,
                 source_length,
-                offset_source,
-                offset_out,
             } => {
                 visit_read(self, barrier);
                 visit_read(self, source_length);
                 visit_read(self, source);
-                visit_read(self, offset_source);
-                visit_read(self, offset_out);
+                visit_read(self, destination);
             }
             BarrierOps::MemCopyAsyncCooperative {
                 barrier,
                 source,
+                destination,
                 source_length,
-                offset_source,
-                offset_out,
             } => {
                 visit_read(self, barrier);
                 visit_read(self, source_length);
                 visit_read(self, source);
-                visit_read(self, offset_source);
-                visit_read(self, offset_out);
+                visit_read(self, destination);
             }
             BarrierOps::CopyAsync {
                 source,
                 source_length,
-                offset_source,
-                offset_out,
                 ..
             } => {
                 visit_read(self, source_length);
                 visit_read(self, source);
-                visit_read(self, offset_source);
-                visit_read(self, offset_out);
             }
             BarrierOps::MemCopyAsyncTx {
                 barrier,
                 source,
+                destination,
                 source_length,
-                offset_source,
-                offset_out,
             } => {
                 visit_read(self, barrier);
                 visit_read(self, source_length);
                 visit_read(self, source);
-                visit_read(self, offset_source);
-                visit_read(self, offset_out);
+                visit_read(self, destination);
             }
             BarrierOps::TmaLoad {
                 barrier,
-                offset_out,
                 tensor_map,
+                destination,
                 indices,
             } => {
-                visit_read(self, offset_out);
                 visit_read(self, barrier);
                 visit_read(self, tensor_map);
+                visit_read(self, destination);
                 for index in indices {
                     visit_read(self, index);
                 }
@@ -492,13 +545,13 @@ impl Optimizer {
             BarrierOps::TmaLoadIm2col {
                 barrier,
                 tensor_map,
+                destination,
                 indices,
-                offset_out,
                 offsets,
             } => {
-                visit_read(self, offset_out);
                 visit_read(self, barrier);
                 visit_read(self, tensor_map);
+                visit_read(self, destination);
                 for index in indices {
                     visit_read(self, index);
                 }
@@ -545,15 +598,48 @@ impl Optimizer {
             TmaOps::TmaStore {
                 source,
                 coordinates,
-                offset_source,
             } => {
                 visit_read(self, source);
-                visit_read(self, offset_source);
                 for coord in coordinates {
                     visit_read(self, coord)
                 }
             }
             TmaOps::CommitGroup | TmaOps::WaitGroup { .. } | TmaOps::WaitGroupRead { .. } => {}
+        }
+    }
+
+    fn visit_tensor_ops(
+        &mut self,
+        tensor_ops: &mut TensorIndexingOps,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match tensor_ops {
+            TensorIndexingOps::CreateLayout {
+                shape,
+                strides,
+                clamp_mode: _,
+            } => {
+                for s in shape {
+                    visit_read(self, s);
+                }
+                for s in strides.iter_mut().flatten() {
+                    visit_read(self, s);
+                }
+            }
+            TensorIndexingOps::CreateView => {}
+            TensorIndexingOps::Slice {
+                layout,
+                offsets,
+                shape,
+            } => {
+                visit_read(self, layout);
+                for o in offsets {
+                    visit_read(self, o);
+                }
+                for s in shape {
+                    visit_read(self, s);
+                }
+            }
         }
     }
 
@@ -576,7 +662,7 @@ impl Optimizer {
 
     fn visit_unop(
         &mut self,
-        unop: &mut UnaryOperator,
+        unop: &mut UnaryOperands,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         visit_read(self, &mut unop.input);
@@ -584,10 +670,19 @@ impl Optimizer {
 
     fn visit_binop(
         &mut self,
-        binop: &mut BinaryOperator,
+        binop: &mut BinaryOperands,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         visit_read(self, &mut binop.lhs);
         visit_read(self, &mut binop.rhs);
+    }
+
+    fn visit_atomic_binop(
+        &mut self,
+        binop: &mut AtomicBinaryOperands,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        visit_read(self, &mut binop.ptr);
+        visit_read(self, &mut binop.value);
     }
 }

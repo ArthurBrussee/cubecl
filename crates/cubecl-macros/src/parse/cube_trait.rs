@@ -3,18 +3,16 @@ use quote::{ToTokens, format_ident, quote};
 use syn::{
     Attribute, FnArg, Generics, Ident, ImplItem, ItemImpl, ItemTrait, Path, Signature, Token,
     TraitItem, Type, TypeParamBound, Visibility, parse_quote, punctuated::Punctuated,
-    visit_mut::VisitMut,
+    spanned::Spanned, visit_mut::VisitMut,
 };
 
 use crate::{
-    ReplaceDefines,
-    parse::kernel::{KernelArgs, KernelParam},
-};
-
-use super::{
-    StripBounds, StripDefault,
-    helpers::{RemoveHelpers, ReplaceIndices},
-    kernel::{KernelFn, KernelSignature},
+    RemoveHelpers, ReplaceDefines,
+    parse::{
+        StripBounds, StripDefault,
+        kernel::{KernelArgs, KernelFn},
+        signature::{KernelParam, KernelSignature},
+    },
 };
 
 pub struct CubeTrait {
@@ -26,7 +24,6 @@ pub struct CubeTrait {
     pub items: Vec<CubeTraitItem>,
     pub original_trait: ItemTrait,
     pub expand_supertraits: Punctuated<TypeParamBound, Token![+]>,
-    pub args: KernelArgs,
 }
 
 pub struct CubeTraitImpl {
@@ -98,7 +95,7 @@ impl CubeTraitItem {
         }
     }
 
-    pub fn associated_method(&self, args: &KernelArgs) -> Option<TokenStream> {
+    pub fn associated_method(&self) -> Option<TokenStream> {
         match self {
             CubeTraitItem::Method(sig) => {
                 let method_name = sig.name.clone();
@@ -107,11 +104,12 @@ impl CubeTraitItem {
                 let mut sig = sig.clone();
                 sig.name =
                     format_ident!("{}", sig.name.to_string().strip_suffix("_method").unwrap());
-                let receiver = sig.parameters.remove(0).ty;
-                sig.parameters.insert(
-                    0,
-                    KernelParam::from_param(parse_quote!(this: #receiver), args, false).unwrap(),
-                );
+                let this_ty = sig.parameters.remove(0).ty;
+
+                let mut this_param = KernelParam::from_param(parse_quote!(this: #this_ty)).unwrap();
+                this_param.mutability = Some(Token![mut](this_ty.span()));
+
+                sig.parameters.insert(0, this_param);
                 sig.receiver_arg = None;
 
                 Some(quote! {
@@ -137,8 +135,9 @@ impl CubeTraitImplItem {
                 let name = func.sig.ident.clone();
                 let full_name = quote!(#struct_ty::#name).to_string();
 
-                let mut func =
-                    KernelFn::from_sig_and_block(func.vis, func.sig, func.block, full_name, args)?;
+                let mut func = KernelFn::from_sig_and_block(
+                    func.attrs, func.vis, func.sig, func.block, full_name, args,
+                )?;
                 if is_method {
                     func.sig.name = format_ident!("__expand_{}_method", func.sig.name);
                     CubeTraitImplItem::Method(func)
@@ -215,7 +214,6 @@ impl CubeTrait {
             items,
             original_trait,
             expand_supertraits,
-            args,
         })
     }
 }
@@ -234,7 +232,6 @@ impl CubeTraitImpl {
             .collect::<Result<_, _>>()?;
 
         RemoveHelpers.visit_item_impl_mut(&mut item_impl);
-        ReplaceIndices.visit_item_impl_mut(&mut item_impl);
         ReplaceDefines.visit_item_impl_mut(&mut item_impl);
 
         let struct_name = *item_impl.self_ty;

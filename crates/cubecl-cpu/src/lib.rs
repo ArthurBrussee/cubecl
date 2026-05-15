@@ -19,7 +19,7 @@ mod tests {
     cubecl_std::testgen_quantized_view!(f32);
 
     #[cube(launch)]
-    fn barrier_smoke(out: &mut Array<f32>) {
+    fn barrier_smoke(out: &mut [f32]) {
         let barrier = barrier::Barrier::local();
         barrier.arrive_and_wait();
         if UNIT_POS == 0 {
@@ -28,7 +28,7 @@ mod tests {
     }
 
     #[cube(launch)]
-    fn sync_cube_magic(out: &mut Array<u32>) {
+    fn sync_cube_magic(out: &mut [u32]) {
         let mut mem = SharedMemory::<u32>::new(1usize);
         if UNIT_POS == 0 {
             mem[0] = 0xDEADBEEFu32;
@@ -38,7 +38,7 @@ mod tests {
     }
 
     #[cube(launch)]
-    fn sync_cube_two_phase(out: &mut Array<u32>) {
+    fn sync_cube_two_phase(out: &mut [u32]) {
         let mut mem = SharedMemory::<u32>::new(4usize);
         let idx = UNIT_POS as usize;
         mem[idx] = (idx as u32) + 1;
@@ -57,7 +57,7 @@ mod tests {
     }
 
     #[cube(launch)]
-    fn sync_cube_all_reduce(out: &mut Array<u32>) {
+    fn sync_cube_all_reduce(out: &mut [u32]) {
         let mut mem = SharedMemory::<u32>::new(8usize);
         let idx = UNIT_POS as usize;
         mem[idx] = idx as u32;
@@ -80,7 +80,7 @@ mod tests {
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(1),
-                ArrayArg::from_raw_parts(out.clone(), 1),
+                BufferArg::from_raw_parts(out.clone(), 1),
             )
         }
 
@@ -99,7 +99,7 @@ mod tests {
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(4),
-                ArrayArg::from_raw_parts(out.clone(), 4),
+                BufferArg::from_raw_parts(out.clone(), 4),
             )
         }
 
@@ -118,7 +118,7 @@ mod tests {
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(4),
-                ArrayArg::from_raw_parts(out.clone(), 4),
+                BufferArg::from_raw_parts(out.clone(), 4),
             )
         }
 
@@ -137,7 +137,7 @@ mod tests {
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(8),
-                ArrayArg::from_raw_parts(out.clone(), 8),
+                BufferArg::from_raw_parts(out.clone(), 8),
             )
         }
 

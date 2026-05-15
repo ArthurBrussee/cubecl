@@ -52,7 +52,7 @@ use cubecl::prelude::*;
 #[cube(launch_unchecked)]
 /// A [Vector] represents a contiguous series of elements where SIMD operations may be available.
 /// The runtime will automatically use SIMD instructions when possible for improved performance.
-fn gelu_array<F: Float, N: Size>(input: &Array<Vector<F, N>>, output: &mut Array<Vector<F, N>>) {
+fn gelu_array<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut [Vector<F, N>]) {
     if ABSOLUTE_POS < input.len() {
         output[ABSOLUTE_POS] = gelu_scalar(input[ABSOLUTE_POS]);
     }
@@ -84,8 +84,8 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(input.len() as u32 / vectorization),
             vectorization,
-            ArrayArg::from_raw_parts(&input_handle, input.len()),
-            ArrayArg::from_raw_parts(&output_handle, input.len()),
+            BufferArg::from_raw_parts(&input_handle, input.len()),
+            BufferArg::from_raw_parts(&output_handle, input.len()),
         )
     };
 

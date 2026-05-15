@@ -2,7 +2,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use syn::{
     AngleBracketedGenericArguments, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
-    PathSegment, QSelf, Type,
+    PathSegment, QSelf, Token, Type,
 };
 
 use crate::{
@@ -40,6 +40,7 @@ pub enum Expression {
         left: Box<Expression>,
         right: Box<Expression>,
     },
+    Unsafe(Token![unsafe], Block),
     Block(Block),
     FunctionCall {
         func: Box<Expression>,
@@ -105,7 +106,7 @@ pub enum Expression {
         default: Block,
     },
     Range {
-        start: Box<Expression>,
+        start: Option<Box<Expression>>,
         end: Option<Box<Expression>>,
         span: Span,
         inclusive: bool,
@@ -122,15 +123,19 @@ pub enum Expression {
         index: Box<Expression>,
         span: Span,
     },
-    Slice {
+    IndexMut {
+        expr: Box<Expression>,
+        index: Box<Expression>,
         span: Span,
-        _ranges: Vec<Expression>,
     },
     ArrayInit {
         init: Box<Expression>,
         len: Box<Expression>,
     },
     Reference {
+        inner: Box<Expression>,
+    },
+    MutReference {
         inner: Box<Expression>,
     },
     StructInit {
@@ -228,7 +233,7 @@ impl Expression {
                 name,
                 is_const: true,
                 ..
-            }) => Some(quote![#name.clone()]),
+            }) => Some(quote![#name]),
             Expression::Path { path, .. } => Some(quote![#path]),
             Expression::Array { elements, .. } => {
                 let elements = elements
@@ -248,16 +253,12 @@ impl Expression {
                 base.as_const(context).map(|base| quote![#base.#field])
             }
             Expression::Reference { inner } => inner.as_const(context).map(|base| quote![&#base]),
+            Expression::MutReference { inner } => {
+                inner.as_const(context).map(|base| quote![&mut #base])
+            }
             Expression::MethodCall { .. } if self.is_const() => Some(self.to_tokens(context)),
             Expression::Match { .. } if self.is_const() => Some(self.to_tokens(context)),
             Expression::AssertConstant { inner } => Some(inner.to_tokens(context)),
-            _ => None,
-        }
-    }
-
-    pub fn as_index(&self) -> Option<(&Expression, &Expression)> {
-        match self {
-            Expression::Index { expr, index, .. } => Some((&**expr, &**index)),
             _ => None,
         }
     }

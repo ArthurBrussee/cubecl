@@ -23,6 +23,9 @@ use super::Visitor;
 impl<'a> Visitor<'a> {
     pub fn visit_operation(&mut self, operation: &Operation) {
         match operation {
+            Operation::Memory(memory) => {
+                self.visit_memory(memory, None);
+            }
             Operation::NonSemantic(NonSemantic::Print {
                 format_string,
                 args,
@@ -121,6 +124,9 @@ impl<'a> Visitor<'a> {
 
     pub fn visit_operation_with_out(&mut self, operation: &Operation, out: Variable) {
         match operation {
+            Operation::Memory(memory) => {
+                self.visit_memory(memory, Some(out));
+            }
             Operation::Atomic(_atomic) => {
                 todo!("Atomic operation are not yet supported");
             }
@@ -152,7 +158,10 @@ impl<'a> Visitor<'a> {
             Operation::Operator(operator) => {
                 self.visit_operator_with_out(operator, out);
             }
-            Operation::CoopMma(_) | Operation::Plane(_) | Operation::Tma(_) => {
+            Operation::CoopMma(_)
+            | Operation::Plane(_)
+            | Operation::Tma(_)
+            | Operation::TensorIndexing(_) => {
                 panic!("{operation} is not supported on CPU.");
             }
             Operation::Branch(_) => {
@@ -160,6 +169,9 @@ impl<'a> Visitor<'a> {
             }
             Operation::Synchronization(_) | Operation::NonSemantic(_) | Operation::Marker(_) => {
                 unreachable!("{operation} doesn't have an out");
+            }
+            Operation::ConstructAggregate(..) | Operation::ExtractAggregateField(..) => {
+                unreachable!("Should be disaggregated at this point")
             }
         }
     }

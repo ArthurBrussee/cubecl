@@ -15,7 +15,7 @@ use cubecl_common::{
 use cubecl_core::{
     self as cubecl, define_size,
     ir::{ElemType, FloatKind, StorageType, VectorSize},
-    prelude::barrier::BarrierExpand,
+    prelude::barrier::Barrier,
     unexpanded,
 };
 use half::{bf16, f16};
@@ -28,7 +28,7 @@ use half::{bf16, f16};
 /// this.
 /// Must ensure `block_size.is_multiple_of(vector_size * scheme.num_quants())`.
 #[expect(dead_code, reason = "only used in expand")]
-#[derive(CubeType, CubeLaunch, Clone, Copy)]
+#[derive(CubeType, CubeLaunch, Clone)]
 pub struct QuantizedView<
     Q: Scalar,
     NQ: Size,
@@ -71,7 +71,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
     }
 
     pub fn __expand_view(
-        scope: &mut Scope,
+        scope: &Scope,
         this: QuantizedViewExpand<Q, NQ, S, F, NF, C>,
     ) -> ViewExpand<Vector<F, NF>, C, ReadOnly> {
         this.__expand_view_method(scope)
@@ -94,10 +94,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         }
     }
 
-    pub fn __expand_view_method(
-        self,
-        _scope: &mut Scope,
-    ) -> ViewExpand<Vector<F, NF>, C, ReadOnly> {
+    pub fn __expand_view_method(self, _scope: &Scope) -> ViewExpand<Vector<F, NF>, C, ReadOnly> {
         ViewExpand::new(self)
     }
 }
@@ -124,7 +121,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
 {
     fn __expand_read_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
     ) -> NativeExpand<Vector<F, NF>> {
         let value = self.values.clone().__expand_read_method(scope, pos.clone());
@@ -135,7 +132,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
 
     fn __expand_read_checked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
     ) -> NativeExpand<Vector<F, NF>> {
         let value = self
@@ -152,7 +149,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
 
     fn __expand_read_masked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
         mask_value: NativeExpand<Vector<F, NF>>,
     ) -> NativeExpand<Vector<F, NF>> {
@@ -172,7 +169,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
 
     fn __expand_read_unchecked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
     ) -> NativeExpand<Vector<F, NF>> {
         let value = self
@@ -187,22 +184,22 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.scheme)
     }
 
-    fn __expand_to_linear_slice_method(
+    fn __expand_as_linear_slice_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: <C>::ExpandType,
         _end: <C>::ExpandType,
-    ) -> SliceExpand<Vector<F, NF>, ReadOnly> {
+    ) -> &SliceExpand<Vector<F, NF>> {
         panic!("Can't create raw slice for quantized view")
     }
 
-    fn __expand_shape_method(&self, scope: &mut Scope) -> <C>::ExpandType {
+    fn __expand_shape_method(&self, scope: &Scope) -> <C>::ExpandType {
         self.values.clone().__expand_shape_method(scope)
     }
 
     fn __expand_is_in_bounds_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: C::ExpandType,
     ) -> NativeExpand<bool> {
         self.values.clone().__expand_is_in_bounds_method(scope, pos)
@@ -210,9 +207,9 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
 
     fn __expand_tensor_map_load_method(
         &self,
-        _scope: &mut Scope,
-        _barrier: BarrierExpand,
-        _shared_memory: SliceExpand<Vector<F, NF>, ReadWrite>,
+        _scope: &Scope,
+        _barrier: &NativeExpand<Barrier>,
+        _shared_memory: &mut SliceExpand<Vector<F, NF>>,
         _pos: C::ExpandType,
     ) {
         panic!("Can't use tensor map functions on quantized view");
@@ -345,7 +342,7 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static, IO: Sli
 
     #[allow(clippy::missing_transmute_annotations)]
     unsafe {
-        match E::as_type(&builder.scope).storage_type() {
+        match E::__expand_as_type(&builder.scope).storage_type() {
             StorageType::Scalar(ElemType::Float(ty)) => match ty {
                 FloatKind::F16 => t(expand_dynamic_f::<f16, NF, C>(
                     values, scales, scheme, builder,

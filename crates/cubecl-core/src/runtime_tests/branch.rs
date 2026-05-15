@@ -4,22 +4,22 @@ use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 
 #[cube(launch_unchecked)]
-pub fn kernel_switch_simple<F: Float>(output: &mut Array<F>, case: u32) {
+pub fn kernel_switch_simple<F: Float>(output: &mut [F], case: u32) {
     match case {
         0 => {
-            output[0] = F::new(1.0);
+            output[0] = F::new(1f32);
         }
         1 => {
-            output[0] = F::new(3.0);
+            output[0] = F::new(3f32);
         }
         _ => {
-            output[0] = F::new(5.0);
+            output[0] = F::new(5f32);
         }
     }
 }
 
 #[cube(launch)]
-pub fn kernel_switch_value_expr<F: Float>(output: &mut Array<F>, case: u32) {
+pub fn kernel_switch_value_expr<F: Float>(output: &mut [F], case: u32) {
     if UNIT_POS == 0 {
         let value = match case {
             0 => F::new(1.0f32),
@@ -31,7 +31,7 @@ pub fn kernel_switch_value_expr<F: Float>(output: &mut Array<F>, case: u32) {
 }
 
 #[cube(launch)]
-pub fn kernel_switch_or_arm<F: Float>(output: &mut Array<F>, case: u32) {
+pub fn kernel_switch_or_arm<F: Float>(output: &mut [F], case: u32) {
     if UNIT_POS == 0 {
         let value = match case {
             0 => F::new(1.0f32),
@@ -46,7 +46,7 @@ const CASE_0: u32 = 0;
 const CASE_1: u32 = 1;
 
 #[cube(launch)]
-pub fn kernel_switch_const<F: Float>(output: &mut Array<F>, case: u32) {
+pub fn kernel_switch_const<F: Float>(output: &mut [F], case: u32) {
     if UNIT_POS == 0 {
         let value = match case {
             CASE_0 => F::new(1.0f32),
@@ -58,20 +58,20 @@ pub fn kernel_switch_const<F: Float>(output: &mut Array<F>, case: u32) {
 }
 
 #[cube(launch)]
-pub fn kernel_select<F: Float>(output: &mut Array<F>, cond: u32) {
+pub fn kernel_select<F: Float>(output: &mut [F], cond: u32) {
     if UNIT_POS == 0 {
-        output[0] = select(cond == 1, F::new(3.0), F::new(5.0));
+        output[0] = select(cond == 1, F::new(3f32), F::new(5f32));
     }
 }
 
 #[cube(launch)]
-pub fn kernel_for_loop_with_break<F: Float>(output: &mut Array<F>) {
+pub fn kernel_for_loop_with_break<F: Float>(output: &mut [F]) {
     let max_iterations = comptime!(20_i32);
     for i in 0..max_iterations {
         if i > 3 {
             break;
         }
-        output[i as usize] = F::new(1.0);
+        output[i as usize] = F::new(1f32);
     }
 }
 
@@ -82,7 +82,7 @@ pub fn test_switch_const<R: Runtime, F: Float + CubeElement>(client: ComputeClie
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
         1,
     );
 
@@ -100,7 +100,7 @@ pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: Compute
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts(handle.clone(), 2),
+            BufferArg::from_raw_parts(handle.clone(), 2),
             0,
         );
     }
@@ -118,7 +118,7 @@ pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(client: Com
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
         1,
     );
 
@@ -135,7 +135,7 @@ pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: ComputeCl
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
         5,
     );
 
@@ -152,7 +152,7 @@ pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: Compute
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
         2,
     );
 
@@ -171,7 +171,7 @@ pub fn test_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>,
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 1) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
         cond_u32,
     );
 
@@ -193,7 +193,7 @@ pub fn test_for_loop_with_break<R: Runtime, F: Float + CubeElement>(client: Comp
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 20) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 20) },
     );
 
     let actual = client.read_one_unchecked(handle);

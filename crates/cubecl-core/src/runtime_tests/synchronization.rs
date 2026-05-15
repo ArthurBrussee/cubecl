@@ -6,7 +6,7 @@ use cubecl_ir::features::Plane;
 
 #[cube(launch)]
 /// First 32 elements should be 1, while last 32 elements may or may not be 1
-fn kernel_test_sync_cube(buffer: &mut Array<u32>, out: &mut Array<u32>) {
+fn kernel_test_sync_cube(buffer: &mut [u32], out: &mut [u32]) {
     let unit_pos = UNIT_POS as usize;
     buffer[unit_pos] = UNIT_POS;
     sync_cube();
@@ -23,8 +23,8 @@ pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(8, 2),
-        unsafe { ArrayArg::from_raw_parts(test, 32) },
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 32) },
+        unsafe { BufferArg::from_raw_parts(test, 32) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 32) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -39,7 +39,7 @@ pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R>) {
 
 #[cube(launch)]
 /// First 32 elements should be 1, while last 32 elements may or may not be 1
-fn kernel_test_finished_sync_cube(buffer: &mut Array<u32>, out: &mut Array<u32>) {
+fn kernel_test_finished_sync_cube(buffer: &mut [u32], out: &mut [u32]) {
     let unit_pos = UNIT_POS as usize;
     buffer[unit_pos] = UNIT_POS;
     if UNIT_POS > 16 {
@@ -61,8 +61,8 @@ pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(2, 1, 1),
         CubeDim::new_2d(8, 2),
-        unsafe { ArrayArg::from_raw_parts(test, 32) },
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 32) },
+        unsafe { BufferArg::from_raw_parts(test, 32) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 32) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -77,16 +77,16 @@ pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R>) {
 
 #[cube(launch)]
 /// First 32 elements should be 1, while last 32 elements may or may not be 1
-fn kernel_test_sync_plane<F: Float>(out: &mut Array<F>) {
+fn kernel_test_sync_plane<F: Float>(out: &mut [F]) {
     let mut shared_memory = Shared::<F>::new();
 
     if UNIT_POS == 0 {
-        *shared_memory.as_mut() = F::from_int(1);
+        *shared_memory = F::from_int(1);
     }
 
     sync_plane();
 
-    out[UNIT_POS as usize] = *shared_memory.as_ref();
+    out[UNIT_POS as usize] = *shared_memory;
 }
 
 pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R>) {
@@ -101,7 +101,7 @@ pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 2),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 64) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -116,16 +116,16 @@ pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R>) {
 
 #[cube(launch)]
 /// All 64 elements should be 1
-fn kernel_test_sync_cube_shared<F: Float>(out: &mut Array<F>) {
+fn kernel_test_sync_cube_shared<F: Float>(out: &mut [F]) {
     let mut shared_memory = Shared::<F>::new();
 
     if UNIT_POS == 0 {
-        *shared_memory.as_mut() = F::from_int(1);
+        *shared_memory = F::from_int(1);
     }
 
     sync_cube();
 
-    out[UNIT_POS as usize] = *shared_memory.as_ref();
+    out[UNIT_POS as usize] = *shared_memory;
 }
 
 pub fn test_sync_cube_shared<R: Runtime>(client: ComputeClient<R>) {
@@ -135,7 +135,7 @@ pub fn test_sync_cube_shared<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 2),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 64) },
     );
 
     let actual = client.read_one_unchecked(handle);
