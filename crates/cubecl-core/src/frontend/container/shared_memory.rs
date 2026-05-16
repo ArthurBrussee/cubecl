@@ -204,19 +204,6 @@ mod indexation {
         /// Mirrors WGSL's `workgroupUniformLoad`. Non-WebGPU backends lower
         /// this to a `sync_cube` followed by a regular (or atomic) load —
         /// uniformity is implicit there.
-        ///
-        /// The result is `<T as CubePrimitive>::Scalar`:
-        ///
-        /// - plain scalar `T` (e.g. `f32`) → `T` itself;
-        /// - `Atomic<E>` → the underlying numeric `E` (WGSL's atomic
-        ///   overload, spec §16.3), so an atomic handle can never leak out.
-        ///
-        /// Note: for a *vectorized* element type (`Vector<S, N>`) this
-        /// returns the lane scalar `S`, **not** `Vector<S, N>` — the
-        /// vectorization is dropped. If you need the full vector, read +
-        /// `sync_cube` manually. This is a deliberate trade-off to keep a
-        /// single sound signature (see PR #1327 discussion); the common
-        /// scalar and atomic cases are exact.
         #[allow(unused_variables)]
         pub fn workgroup_uniform_load(&self, i: usize) -> <T as CubePrimitive>::Scalar {
             intrinsic!(|scope| {
