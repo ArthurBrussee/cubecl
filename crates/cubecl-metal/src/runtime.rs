@@ -131,6 +131,14 @@ impl Runtime for MetalRuntime {
         }
     }
 
+    /// The server refuses a GPU without Metal 3 (a paravirtual one, say), so such a
+    /// machine has no usable Metal device and the default device falls through to the
+    /// next runtime instead of failing to start.
+    fn is_available() -> bool {
+        crate::device::default_device()
+            .is_some_and(|device| device.supportsFamily(MTLGPUFamily::Metal3))
+    }
+
     fn enumerate_devices(type_id: u16) -> Vec<DeviceId> {
         // type_id matches `device.rs`: 0=Default, 1=Discrete, 2=Integrated, where
         // integrated == `hasUnifiedMemory()`. index_id is the nth device of that class,
