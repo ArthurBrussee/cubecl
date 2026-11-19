@@ -3,7 +3,7 @@ use alloc::boxed::Box;
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::profile::ProfileDuration;
+use cubecl_common::profile::{ProfileDuration, ProfileTicks};
 use derive_more::Display;
 
 use core::time::Duration;
@@ -22,7 +22,6 @@ use crate::execution::{ProcessMode, TuneOutcome, TuneRegistration};
 use crate::server::LaunchError;
 #[cfg(not(target_family = "wasm"))]
 use crate::server::ServerError;
-use crate::tune::sampler::measured;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use cubecl_environment::config::RuntimeConfig;
 
@@ -977,4 +976,13 @@ fn check_equivalence<O: AutotuneOutput>(reference: &O, other: O, decisions_enabl
         reference.check_equivalence(other);
         true
     }
+}
+
+/// A resolved sample's time, or `None` where it is no time: unmeasured, or zero. No launch that
+/// ran takes zero; a zero is a window that timed nothing, such as a candidate whose kernel never
+/// launched, and recorded it would be the fastest sample in the round and end it on the spot.
+pub(crate) fn measured(ticks: Option<ProfileTicks>) -> Option<Duration> {
+    ticks
+        .map(|ticks| ticks.duration())
+        .filter(|duration| !duration.is_zero())
 }

@@ -668,20 +668,73 @@ fn close_service(
         return remove_service(type_id, release);
     }
 
-    let (sender, recv) = oneshot::channel();
-    let close = move || {
-        let _ = sender.send(remove_service(type_id, release));
-    };
+    let reply = CloseReply::new();
+    let sender = CloseReplySender(Some(reply.clone()));
+    let close = move || sender.send(remove_service(type_id, release));
     if client.enqueue(close).is_err() {
         return Ok(());
     }
     client.flush();
-    match recv.recv_timeout(timeout) {
-        Ok(closed) => closed,
-        Err(oneshot::RecvTimeoutError::Disconnected) => Ok(()),
-        Err(oneshot::RecvTimeoutError::Timeout) => Err(ServiceCloseError::new(std::format!(
+    match reply.wait(timeout) {
+        // A runner that dropped the close without running it is gone: nothing to close.
+        Some(closed) => closed.unwrap_or(Ok(())),
+        None => Err(ServiceCloseError::new(std::format!(
             "device runner {runner_id:?} did not reach the close within {timeout:?}"
         ))),
+    }
+}
+
+/// The answer to a close, waited for on a condvar.
+///
+/// A parking channel can't be used here: it needs `thread::current()`, and on macOS the exit
+/// handler that closes the services runs after the main thread's thread-locals are gone.
+struct CloseReply {
+    /// `Some(None)` once the close was dropped without running.
+    answer: std::sync::Mutex<Option<Option<Result<(), ServiceCloseError>>>>,
+    ready: std::sync::Condvar,
+}
+
+impl CloseReply {
+    fn new() -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self {
+            answer: std::sync::Mutex::new(None),
+            ready: std::sync::Condvar::new(),
+        })
+    }
+
+    fn set(&self, answer: Option<Result<(), ServiceCloseError>>) {
+        let mut slot = self.answer.lock().unwrap_or_else(|e| e.into_inner());
+        slot.get_or_insert(answer);
+        self.ready.notify_all();
+    }
+
+    /// The answer, or `None` if none came within `timeout`.
+    fn wait(&self, timeout: Duration) -> Option<Option<Result<(), ServiceCloseError>>> {
+        let slot = self.answer.lock().unwrap_or_else(|e| e.into_inner());
+        let (mut slot, _) = self
+            .ready
+            .wait_timeout_while(slot, timeout, |answer| answer.is_none())
+            .unwrap_or_else(|e| e.into_inner());
+        slot.take()
+    }
+}
+
+/// Answers a [`CloseReply`], or marks it dropped if the close never runs.
+struct CloseReplySender(Option<std::sync::Arc<CloseReply>>);
+
+impl CloseReplySender {
+    fn send(mut self, closed: Result<(), ServiceCloseError>) {
+        if let Some(reply) = self.0.take() {
+            reply.set(Some(closed));
+        }
+    }
+}
+
+impl Drop for CloseReplySender {
+    fn drop(&mut self) {
+        if let Some(reply) = self.0.take() {
+            reply.set(None);
+        }
     }
 }
 
