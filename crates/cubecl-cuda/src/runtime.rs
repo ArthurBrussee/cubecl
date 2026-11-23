@@ -34,7 +34,7 @@ use cubecl_cpp::{
     target::Cuda,
 };
 use cubecl_runtime::runtime::Runtime;
-use cubecl_runtime::{allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger};
+use cubecl_runtime::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -347,7 +347,7 @@ impl DeviceService for CudaServer {
 
         let cuda_ctx = CudaContext::new(comp_opts, device_props.clone(), ctx, arch);
         let logger = Arc::new(ServerLogger::default());
-        let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
+        let policy = ContiguousMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
         let mut utilities = ServerUtilities::new(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "cuda",
