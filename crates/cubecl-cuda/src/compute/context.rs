@@ -213,7 +213,12 @@ impl CudaContext {
         let include_option = format!("--include-path={}", include_path.to_str().unwrap());
         let cccl_include_path = cccl_include_path();
         let cccl_include_option = format!("--include-path={}", cccl_include_path.to_str().unwrap());
-        let mut options = vec![arch.as_str(), include_option.as_str(), "-lineinfo"];
+        let mut options = vec![
+            arch.as_str(),
+            include_option.as_str(),
+            "-lineinfo",
+            "--use_fast_math",
+        ];
         if cccl_include_path.exists() {
             options.push(&cccl_include_option);
         }
